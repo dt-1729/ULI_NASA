@@ -15,7 +15,17 @@ from matplotlib.cm import get_cmap
 # create a multiagent scheduling and routing class
 class MARS():
 
-    def __init__(self, n_waypoints, n_agents, tolArray, b1, b2, wp_params, seed, printFlag):
+    def __init__(
+        self, 
+        n_waypoints, 
+        n_agents, 
+        tolArray, 
+        b1, 
+        b2, 
+        wp_params, 
+        seed, 
+        printFlag):
+
         self.n_waypoints = n_waypoints
         self.n_agents = n_agents
         self.tolArray = tolArray
@@ -54,7 +64,7 @@ class MARS():
         na = self.n_agents
         nw = self.n_waypoints
         # agent_weights = np.random.uniform(0,1, na)
-        agent_weights = 5*np.ones(na)
+        agent_weights = np.ones(na)
         # agent_weights[0] = 10.0
         # agent_weights[4] = 10.0
         # agent_weights[5] = 10.0
@@ -148,6 +158,27 @@ class MARS():
                 # print(conflictMat)
                 np.fill_diagonal(conflictMat, 0.0)
                 conflictCostArray[j] = self.wp_weights[j]*np.sum(np.abs(conflictMat))
+        self.C_wp_conflict = conflictCostArray
+
+        if allowPrint:
+            print(f'\ninidividual conflict costs: \n {conflictCostArray}\nsum: {self.C_wp_conflict}')
+        pass
+
+    # function to compute total node conflict cost
+    def conflictCost1(self, sched_mat:np.ndarray, gamma:float, coeff:float, allowPrint=False):
+        nw = self.n_waypoints
+        na = self.n_agents
+        # conflictMat = np.zeros(shape=(nw, na, na))
+        conflictCostArray = np.zeros(nw)
+        # filter_wp_arr = filter_wp.max(axis=0)
+        for j in range(nw):
+            tj = sched_mat[:,j].reshape(-1,1)
+            tauj = np.tile(tj,(1,self.n_agents)) - np.transpose(np.tile(tj,(1,self.n_agents)))
+            # conflictMat = 2000*(1 + np.tanh(gamma*(self.tolArray[j]-np.abs(tauj))))
+            conflictMat = supporting_functions.myPenaltyFunc(self.tolArray[j]**2-np.abs(tauj)**2, gamma, coeff)
+            # print(conflictMat)
+            np.fill_diagonal(conflictMat, 0.0)
+            conflictCostArray[j] = self.wp_weights[j] * np.sum(np.abs(conflictMat))
         self.C_wp_conflict = conflictCostArray
 
         if allowPrint:
