@@ -225,6 +225,7 @@ class MARS():
     #     computeTime = time.time() - t0
     #     return cost_fun, sched, computeTime
 
+
     # function to perform optimization iterations at a given beta
     def optimize_schedule_trust_constr(self, init_sched_vec0, beta, gamma_t, gamma_c, coeff_t, coeff_c, filter_wp, bds, opts, allowPrintOptimize=False):
         t0 = time.time()
