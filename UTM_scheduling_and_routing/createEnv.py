@@ -231,7 +231,7 @@ class MARS():
         t0 = time.time()
         res = minimize(self.totalCost, init_sched_vec0, 
                         args=(beta,gamma_t,gamma_c,coeff_t,coeff_c,filter_wp), bounds=bds,
-                        method='trust-constr', options=opts)
+                        method='slsqp', options=opts)
         sched = res.x
         cost_fun = res.fun
         computeTime = time.time() - t0
