@@ -19,7 +19,7 @@ import supporting_functions
 class flpoAgent():
 
     def __init__(self, n_wp:int, sd:list, sched:np.ndarray, 
-                speedLim:np.ndarray, process_T:np.ndarray, eta:float, theta:float, INF:float):
+                speedLim:np.ndarray, process_T:np.ndarray, INF:float):
 
         assert(sd[0] != sd[1])
         self.n_wp = n_wp # number of waypoints
@@ -28,10 +28,9 @@ class flpoAgent():
         self.sched = sched # schedule at all the waypoints
         self.stageHorizon = self.n_wp+1 # number of FLPO stages
         self.speedLim = speedLim # minimum and maximum speeds allowed
-        self.eta = eta # speed constraint penalty parameter
-        self.theta = theta # speed constraint penalty parameter
+        self.mean_speed = np.mean(self.speedLim)
         self.INF = INF
-        self.freeEnergy_s = -self.INF # initialize free energy of the vehicle (assuming beta = 0)
+        self.freeEnergy_s = -INF # initialize free energy of the vehicle (assuming beta = 0)
         self.route = []
         self.fin_sched = []
         self.t_process = process_T # processing time of the vehicle at the waypoints
@@ -41,11 +40,8 @@ class flpoAgent():
         assert(transitSchedMat.shape==distMat.shape)
         P_up = supporting_functions.myPenaltyFunc(transitSchedMat - distMat/self.speedLim[0], gamma, coeff)
         P_low = supporting_functions.myPenaltyFunc(distMat/self.speedLim[1] - transitSchedMat, gamma, coeff)
-        # P_up = self.eta*(1+np.tanh(self.theta*(transitSchedMat - distMat/self.speedLim[0])))
-        # P_low = self.eta*(1+np.tanh(self.theta*(distMat/self.speedLim[1] - transitSchedMat)))
         assert(P_up.shape == P_low.shape)
         return P_up + P_low
-
 
     def returnStageWiseCost(self, sched, distMat, gamma, coeff):
         K = self.stageHorizon
@@ -73,7 +69,31 @@ class flpoAgent():
                         dt_n2w-self.t_process[self.s], distMat[self.s,:], gamma, coeff), axis=0)
         return Xi_flip[::-1]
 
-    
+
+    def returnStageWiseCost_v1(self, sched, distMat):
+        K = self.stageHorizon
+        Xi_flip = [0]*K
+        dt_w2w = np.tile(sched, (self.n_wp, 1)) - np.tile(sched.reshape(-1,1), (1, self.n_wp))
+        dt_w2d = (np.array([sched[self.d]]) - sched).reshape(-1,1)
+        dt_n2w = sched - np.array([sched[self.s]])
+
+        dt_w2w[distMat==self.INF] = self.INF
+        dt_w2d[distMat[:,self.d]==self.INF] = self.INF
+        dt_n2w[distMat[self.s,:]==self.INF] = self.INF
+
+        for i in range(K):
+            if i == 0: # penultimate stage to destination
+                Xi_flip[i] = (dt_w2d - distMat[:,self.d].reshape(-1,1)/self.mean_speed)**2
+                Xi_flip[i][self.d,:] = 0.0
+            elif i>0 and i<self.stageHorizon-1: # internal stages
+                Xi_flip[i] = (dt_w2w - distMat/self.mean_speed)**2
+                Xi_flip[i][self.d,self.d] = 0.0
+            elif i == self.stageHorizon-1: # starting stage to 1st stage
+                Xi_flip[i] = np.expand_dims(
+                    sched[self.s]**2 + (dt_n2w - distMat[self.s,:]/self.mean_speed)**2, axis=0)
+        return Xi_flip[::-1]
+
+
     def backPropDP(self, Xi_s, beta, returnPb=True):
         t0 = time.time()
         K = self.stageHorizon
@@ -96,21 +116,29 @@ class flpoAgent():
         finalCost = np.sum(freeEnergy_flip[K-1])
         return Lambda_flip[::-1], freeEnergy_flip[::-1], finalCost, tf-t0, p_flip[::-1]
 
-    
     def getFreeEnergy_s(self, sched, distMat, beta, gamma, coeff):
         Xi = self.returnStageWiseCost(sched, distMat, gamma, coeff)
         _, _, freeEnergy_s, _, _ = self.backPropDP(Xi, beta, returnPb=False)
         self.freeEnergy_s = freeEnergy_s
-    
 
     def getPathAssociations(self, sched, dist_mat, beta, gamma, coeff):
         Xi = self.returnStageWiseCost(sched=sched, distMat=dist_mat, gamma=gamma, coeff=coeff)
         _, _, _, _, Pb = self.backPropDP(Xi_s=Xi, beta=beta, returnPb=True)
         return Pb
 
+    def getFreeEnergy_s_v1(self, sched, distMat, beta):
+        Xi = self.returnStageWiseCost_v1(sched, distMat)
+        _, _, freeEnergy_s, _, _ = self.backPropDP(Xi, beta, returnPb=False)
+        self.freeEnergy_s = freeEnergy_s
+        return freeEnergy_s
 
-    def calc_probability_of_reach(self, sched, dist_mat, beta, gamma, coeff):
-        Pb = self.getPathAssociations(sched, dist_mat, beta, gamma, coeff)
+    def getPathAssociations_v1(self, sched, dist_mat, beta):
+        Xi = self.returnStageWiseCost_v1(sched=sched, distMat=dist_mat)
+        _, _, _, _, Pb = self.backPropDP(Xi_s=Xi, beta=beta, returnPb=True)
+        return Pb
+
+
+    def calc_probability_of_reach(self, Pb):
         Pb_reach = [0]*(self.stageHorizon+1) # equal to the number of intermediate stages (=#waypoints currently)
         reach_mat = []
         for i in range(self.stageHorizon+1):
