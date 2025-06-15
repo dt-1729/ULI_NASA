@@ -91,6 +91,12 @@ def myPenaltyFunc(X, gamma, coeff):
             )/(np.log(my_exp(1/gamma)+my_exp(-gamma))))
     return pX
 
+def myPenaltyFunc1(X, p):
+    # apply penalty if X is outside the interval [0,1]
+    Ax = p * X**2
+    Bx = p * (X-1)**2
+    cost = (np.tanh(-1000 * X)+1) * Ax + (np.tanh(1000*(X-1))+1) * Bx
+    return cost
 
 def generate_non_uniform_grid_points(n_points, square_size=1.0, noise_factor=0.05):
     grid_size = int(np.ceil(np.sqrt(n_points)))

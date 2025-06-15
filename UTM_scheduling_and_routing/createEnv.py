@@ -244,7 +244,7 @@ class MARS():
         beta_max = beta_lims[1]
         gamma_t = 5
         gamma_c = 7.5
-        coeff_t = 50
+        coeff_t = 10000
         coeff_c = 5.0
         reach_mat = self.calc_agent_reach_mat(
                 sched_vec0.reshape(self.n_agents, self.n_waypoints), 

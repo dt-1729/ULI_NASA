@@ -38,10 +38,17 @@ class flpoAgent():
 
     def speedConsPenalty(self, transitSchedMat, distMat, gamma, coeff):
         assert(transitSchedMat.shape==distMat.shape)
-        P_up = supporting_functions.myPenaltyFunc(transitSchedMat - distMat/self.speedLim[0], gamma, coeff)
-        P_low = supporting_functions.myPenaltyFunc(distMat/self.speedLim[1] - transitSchedMat, gamma, coeff)
-        assert(P_up.shape == P_low.shape)
-        return P_up + P_low
+        vmin = self.speedLim[0]
+        vmax = self.speedLim[1]
+        # P_up = supporting_functions.myPenaltyFunc(transitSchedMat - distMat/self.speedLim[0], gamma, coeff)
+        # P_low = supporting_functions.myPenaltyFunc(distMat/self.speedLim[1] - transitSchedMat, gamma, coeff)
+        # assert(P_up.shape == P_low.shape)
+        # return P_up + P_low
+        X = vmin/(vmax-vmin) * (transitSchedMat * vmax - distMat)/distMat
+        P = supporting_functions.myPenaltyFunc1(X, coeff)
+        assert(P.shape == X.shape)
+        return P
+
 
     def returnStageWiseCost(self, sched, distMat, gamma, coeff):
         K = self.stageHorizon
@@ -85,14 +92,36 @@ class flpoAgent():
             if i == 0: # penultimate stage to destination
                 Xi_flip[i] = (dt_w2d - distMat[:,self.d].reshape(-1,1)/self.mean_speed)**2
                 Xi_flip[i][self.d,:] = 0.0
-            elif i>0 and i<self.stageHorizon-1: # internal stages
+            elif i>0 and i<K-1: # internal stages
                 Xi_flip[i] = (dt_w2w - distMat/self.mean_speed)**2
                 Xi_flip[i][self.d,self.d] = 0.0
-            elif i == self.stageHorizon-1: # starting stage to 1st stage
+            elif i == K-1: # starting stage to 1st stage
                 Xi_flip[i] = np.expand_dims(
                     sched[self.s]**2 + (dt_n2w - distMat[self.s,:]/self.mean_speed)**2, axis=0)
         return Xi_flip[::-1]
 
+
+    def returnStagewiseGrad_v1(self, sched, distMat):
+        N = self.n_wp
+        G_w2w = np.zeros((N,N,N))
+        K = self.stageHorizon
+        G_flip = [0]*K
+
+        # compute gradient for w2w transitions
+        for k in range(N):
+            G_w2w[k,k,:] = sched[k] - sched + self.mean_speed/distMat[k,:]
+            G_w2w[k,:,k] = sched[k] - sched - self.mean_speed/distMat[:,k]
+
+        for i in range(K):
+            if i == 0: # penultimate stage to destination
+                G_flip[i] = G_w2w[:,:,self.d].reshape(-1,N,1)
+            elif i == K-1: # start to first stage
+                G_flip[i] = G_w2w[:,self.s,:].reshape(-1,1,N)
+            else:
+                G_flip[i] = G_w2w
+
+        return G_flip[::-1]
+    
 
     def backPropDP(self, Xi_s, beta, returnPb=True):
         t0 = time.time()
@@ -120,6 +149,7 @@ class flpoAgent():
         Xi = self.returnStageWiseCost(sched, distMat, gamma, coeff)
         _, _, freeEnergy_s, _, _ = self.backPropDP(Xi, beta, returnPb=False)
         self.freeEnergy_s = freeEnergy_s
+        return freeEnergy_s
 
     def getPathAssociations(self, sched, dist_mat, beta, gamma, coeff):
         Xi = self.returnStageWiseCost(sched=sched, distMat=dist_mat, gamma=gamma, coeff=coeff)
@@ -137,6 +167,18 @@ class flpoAgent():
         _, _, _, _, Pb = self.backPropDP(Xi_s=Xi, beta=beta, returnPb=True)
         return Pb
 
+    def backPropDP_grad(self, GD_s, P):
+        K = self.stageHorizon
+        GV_flip = [0]*K
+        GD_flip = GD_s[::-1]
+        P_flip = P[::-1]
+        for i in range(K):
+            if i == 0:
+                GV_flip[i] = GD_flip[i]
+            else:
+                GV_flip[i] = np.sum(P_flip[i][:,:,None,None] * (GD_flip[i] + GV_flip[i-1].squeeze()),axis=1,keepdims=True)
+        # G_freeEnergy = GV_flip[i].squeeze().sum(axis=0)
+        return GV_flip[::-1] #, G_freeEnergy
 
     def calc_probability_of_reach(self, Pb):
         Pb_reach = [0]*(self.stageHorizon+1) # equal to the number of intermediate stages (=#waypoints currently)
