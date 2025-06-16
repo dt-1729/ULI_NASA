@@ -173,12 +173,12 @@ class flpoAgent():
         GD_flip = GD_s[::-1]
         P_flip = P[::-1]
         for i in range(K):
-            if i == 0:
+            if i == 0: # from penultimate stage to the destination
                 GV_flip[i] = GD_flip[i]
-            else:
-                GV_flip[i] = np.sum(P_flip[i][:,:,None,None] * (GD_flip[i] + GV_flip[i-1].squeeze()),axis=1,keepdims=True)
-        # G_freeEnergy = GV_flip[i].squeeze().sum(axis=0)
-        return GV_flip[::-1] #, G_freeEnergy
+            else: # intermediate stages
+                GV_flip[i] = np.sum(P_flip[i] * GD_flip[i], axis=2, keepdims=True) + P_flip[i] @ GV_flip[i-1]
+        G_freeEnergy = GV_flip[-1].squeeze()
+        return G_freeEnergy, GV_flip[::-1]
 
     def calc_probability_of_reach(self, Pb):
         Pb_reach = [0]*(self.stageHorizon+1) # equal to the number of intermediate stages (=#waypoints currently)

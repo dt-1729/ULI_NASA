@@ -215,6 +215,31 @@ class MARS():
         return C
 
 
+    def get_CBF_control(self, sched_mat, beta):
+
+        # compute gradient of free energy of all UAVs w.r.t sched_mat
+        GF = np.zeros(sched_mat.shape)
+        # the following loop is parallelizable
+        for i,a in enumerate(self.agents):
+            GD_a = a.returnStagewiseGrad_v1(sched[i,:], self.dist_mat)
+            P_a = a.getPathAssociations_v1(sched[i,:], self.dist_mat, beta)
+            GF[i,:], _ = a.backPropDP_grad(GD_a, P_a)
+            
+        # compute gradient of control barrier function w.r.t. sched_mat
+        # the following loop is parallelizable
+        for i in range(self.n_waypoints):
+            Ti = sched_mat[:,i]
+            Hi_mat = (Ti - Ti.reshape(-1,1))**2 - self.tolArray[i]**2
+            Hi_triu = np.triu_indices_from(Hi_mat, k=1)
+            Hi = Hi_mat[Hi_triu]
+            
+            # TODO: Compute gradient
+
+        # compute u by solving a CLF-CBF based quadratic program
+
+        return u
+
+
     # function to perform optimization iterations at a given beta
     def optimize_schedule_trust_constr(self, init_sched_vec0, beta, gamma_t, gamma_c, coeff_t, coeff_c, filter_wp, bds, opts, allowPrintOptimize=False):
         t0 = time.time()
