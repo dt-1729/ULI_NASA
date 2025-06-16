@@ -10,7 +10,7 @@ import time
 import supporting_functions
 from collections import defaultdict
 from matplotlib.cm import get_cmap
-
+import cvxpy as cp
 
 # create a multiagent scheduling and routing class
 class MARS():
@@ -214,30 +214,89 @@ class MARS():
         C = np.sum(self.agent_weights*self.C_agents) + np.sum(self.C_wp_conflict) + 0.00*np.sum(np.abs(sched_vec))
         return C
 
-
-    def get_CBF_control(self, sched_mat, beta):
-
+    def grad_transportCost_v1(self, sched_mat, beta):
         # compute gradient of free energy of all UAVs w.r.t sched_mat
-        GF = np.zeros(sched_mat.shape)
+        Grad_F = np.zeros(sched_mat.shape)
         # the following loop is parallelizable
         for i,a in enumerate(self.agents):
-            GD_a = a.returnStagewiseGrad_v1(sched[i,:], self.dist_mat)
-            P_a = a.getPathAssociations_v1(sched[i,:], self.dist_mat, beta)
-            GF[i,:], _ = a.backPropDP_grad(GD_a, P_a)
-            
-        # compute gradient of control barrier function w.r.t. sched_mat
-        # the following loop is parallelizable
-        for i in range(self.n_waypoints):
+            GD_a = a.returnStagewiseGrad_v1(sched_mat[i,:], self.dist_mat)
+            P_a = a.getPathAssociations_v1(sched_mat[i,:], self.dist_mat, beta)
+            Grad_F[i,:], _ = a.backPropDP_grad(GD_a, P_a)
+
+        return Grad_F
+
+    def CBF(self, sched_mat):
+        Nw = self.n_waypoints
+        Na = self.n_agents
+
+        # define gradient as a 3D tensor
+        Grad_H = np.zeros((Nw, Na * (Na+1)//2, Na))
+        H = np.zeros((Na * (Na+1)//2, Nw))
+
+        # the following loop over waypoints is parallelizable
+        for i in range(Nw):
             Ti = sched_mat[:,i]
-            Hi_mat = (Ti - Ti.reshape(-1,1))**2 - self.tolArray[i]**2
+            KTi = Ti - Ti.reshape(-1,1)
+            Hi_mat = KTi**2 - self.tolArray[i]**2
             Hi_triu = np.triu_indices_from(Hi_mat, k=1)
-            Hi = Hi_mat[Hi_triu]
+            H[:,i] = Hi_mat[Hi_triu]
             
-            # TODO: Compute gradient
+            # Compute gradient
+            start_row = 0
+            n_rows = Na-1
+            for j in range(Na-1):
+                Grad_H[i, start_row : start_row + n_rows, j] = KTi[j+1:, j]
+                Grad_H[i, start_row : start_row + n_rows, j+1:] = np.diag(KTi[j,j+1:])
+                start_row = j + n_rows
+                n_rows = n_rows-1
+        return H, Grad_H
 
-        # compute u by solving a CLF-CBF based quadratic program
 
-        return u
+    def get_CBF_control(self, sched_mat, beta, gamma, alpha, p):
+
+        Nw = self.n_waypoints
+        Na = self.n_agents
+        # control decision variables
+        U = cp.Variable((Na,Nw))
+        delta = cp.Variable(1)
+
+        # get free energy and its dot
+        self.transportCost_v1(sched_mat, beta)
+        F = np.sum(self.agent_weights * self.C_agents)
+        Grad_F = self.grad_transportCost_v1(sched_mat, beta)
+        F_dot = cp.sum(cp.multiply(self.agent_weights.reshape(-1,1), cp.multiply(Grad_F, U))) # Na x Nw
+
+        # get CBF and its dot
+        H, Grad_H = self.CBF(sched_mat)
+        # UT = (U.T).reshape(-1,1,Na)
+        H_dot_list = []
+        for i in range(len(Grad_H)):
+            H_dot_list.append(cp.sum(cp.multiply(Grad_H[i], cp.reshape(U[:,i], (1, Na), order='C')), axis=1, keepdims=True))
+        # print(H_dot_list)
+        H_dot = cp.hstack(H_dot_list) # Na(Na+1)/2 x Nw
+
+        # define objective, constraints and problem
+        objective = cp.Minimize(cp.sum_squares(U) + p * delta**2)
+        constraints = [
+            F_dot <= -gamma * F + delta,
+            H_dot >= -alpha * H
+        ]
+        problem = cp.Problem(objective, constraints)
+
+        # Solver Options for OSQP
+        solver_options = {
+            'max_iter': 50000,         # Increase max iterations to 20000
+            'eps_abs': 1e-4,           # Adjust absolute tolerance
+            'eps_rel': 1e-4,           # Adjust relative tolerance
+            'eps_prim_inf': 1e-3,      # Adjust primal infeasibility tolerance
+            'eps_dual_inf': 1e-3,      # Adjust dual infeasibility tolerance
+            'verbose': False           # Enable verbose output to track solver progress
+        }
+
+        # Solve the problem using OSQP with customized options
+        result = problem.solve(solver = 'OSQP', **solver_options)
+
+        return U.value
 
 
     # function to perform optimization iterations at a given beta
