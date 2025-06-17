@@ -22,17 +22,18 @@ class MARS():
         tolArray, 
         wp_params, 
         seed, 
+        offset_energy,
         printFlag):
 
         self.n_waypoints = n_waypoints
         self.n_agents = n_agents
         self.tolArray = tolArray
         self.INF = 1e8
+        self.offset_energy = offset_energy
         self.initWaypoints(wp_params, seed=seed)
         self.initAgentParams(seed=seed)
         self.initFlpoAgents()
         self.printInitializationData(printFlag)
-
 
     # function to create waypoints and the corresponding adjacency matrix
     def initWaypoints(self, wp_params:dict, seed:int):
@@ -52,7 +53,6 @@ class MARS():
         random.seed(None)
         pass
 
-
     # function to create agents and assign their parameters
     def initAgentParams(self, seed):
         np.random.seed(seed)
@@ -60,19 +60,15 @@ class MARS():
         na = self.n_agents
         nw = self.n_waypoints
         agent_weights = np.ones(na)
-        self.agent_weights = agent_weights#/np.sum(agent_weights)
+        self.agent_weights = agent_weights/np.sum(agent_weights)
         self.sd_mat = np.random.choice(range(nw), (na,2))
         min_speeds = np.random.uniform(0.01,1.0,na).reshape(-1,1)
         max_speeds = np.random.uniform(60,75,na).reshape(-1,1)
-        # max_speeds = np.array([[101],[280]])
         self.speed_lim_mat = np.concatenate((min_speeds,max_speeds), axis=1)
         self.t_start_min = 0.0
         max_time = np.max(cdist(self.wp_locations, self.wp_locations, 'euclidean'))/np.min(min_speeds)
         self.sched_mat = np.random.uniform(self.t_start_min, 100.0, (na, nw))
-        # for i in range(1,na):
-        #     self.sched_mat[i,:] = self.sched_mat[i-1,:] + np.ones(nw)*5
         self.sched_mat[np.arange(na),self.sd_mat[:,0]] = np.ones(na)*self.t_start_min
-        # print(self.sched_mat[:,self.sd_mat[:,0]])
         self.process_T = np.random.uniform(3,5,(na, nw))
         self.process_T[np.arange(na),self.sd_mat[:,1]] = np.zeros(na)
         
@@ -80,6 +76,9 @@ class MARS():
         random.seed(None)
         pass
 
+    def set_offset_energy(self,flag):
+        for a in self.agents:
+            a.offset_energy = flag
 
     # function to initialize agents
     def initFlpoAgents(self):
@@ -87,12 +86,17 @@ class MARS():
         na = self.n_agents
         nw = self.n_waypoints
         for i in range(na):
-            v = flpoAgent.flpoAgent(n_wp=nw, sd=self.sd_mat[i,:], sched=self.sched_mat[i,:],
-                            speedLim=self.speed_lim_mat[i,:], process_T=self.process_T[i,:], INF=self.INF)
+            v = flpoAgent.flpoAgent(
+                n_wp=nw, 
+                sd=self.sd_mat[i,:], 
+                sched=self.sched_mat[i,:],
+                speedLim=self.speed_lim_mat[i,:], 
+                process_T=self.process_T[i,:], 
+                INF=self.INF,
+                offset_energy=self.offset_energy)
             list_agents.append(v)
         self.agents = list_agents
         pass
-
 
     # function to print initialization data
     def printInitializationData(self,printFlag):
@@ -102,7 +106,6 @@ class MARS():
             print(f'wp_locations:\n{self.wp_locations} \nmask:\n{self.mask} \ndist_mat:\n{self.dist_mat} \nwp_weights:\n{self.wp_weights}')
             print('---------')
             print(f'agent_weights:\n{self.agent_weights} \nsd_mat:\n{self.sd_mat} \neta_arr: \nprocessing_time:\n{self.process_T} \nspeed_lim_mat:\n{self.speed_lim_mat} \nsched_mat:\n{self.sched_mat}')
-
 
     def calc_agent_reach_mat(self, sched_mat, beta, gamma, coeff):
         reach_mat = []
@@ -152,7 +155,6 @@ class MARS():
             print(f'sum: {self.C_agents}')
         pass
 
-
     # function to compute total node conflict cost
     def conflictCost(self, sched_mat:np.ndarray, gamma:float, coeff:float, filter_wp:np.ndarray, allowPrint=False):
         nw = self.n_waypoints
@@ -190,7 +192,6 @@ class MARS():
         if allowPrint:
             print(f'\ninidividual conflict costs: \n {conflictCostArray}\nsum: {self.C_wp_conflict}')
         pass
-
 
     # function to compute total cost
     def totalCost(self, sched_vec:np.ndarray, beta:float, gamma_t:float, gamma_c:float, coeff_t:float, coeff_c:float, filter_wp:np.ndarray):
@@ -264,22 +265,22 @@ class MARS():
         self.transportCost_v1(sched_mat, beta)
         F = np.sum(self.agent_weights * self.C_agents)
         Grad_F = self.grad_transportCost_v1(sched_mat, beta)
-        F_dot = cp.sum(cp.multiply(self.agent_weights.reshape(-1,1), cp.multiply(Grad_F, U))) # Na x Nw
+        F_dot = cp.sum(cp.multiply(self.agent_weights, cp.sum(cp.multiply(Grad_F, U), axis=1))) # Na x Nw
 
-        # get CBF and its dot
-        H, Grad_H = self.CBF(sched_mat)
-        # UT = (U.T).reshape(-1,1,Na)
-        H_dot_list = []
-        for i in range(len(Grad_H)):
-            H_dot_list.append(cp.sum(cp.multiply(Grad_H[i], cp.reshape(U[:,i], (1, Na), order='C')), axis=1, keepdims=True))
-        # print(H_dot_list)
-        H_dot = cp.hstack(H_dot_list) # Na(Na+1)/2 x Nw
+        # # get CBF and its dot
+        # H, Grad_H = self.CBF(sched_mat)
+        # # UT = (U.T).reshape(-1,1,Na)
+        # H_dot_list = []
+        # for i in range(len(Grad_H)):
+        #     H_dot_list.append(
+        #         cp.sum(cp.multiply(Grad_H[i], cp.reshape(U[:,i], (1, Na), order='C')), axis=1, keepdims=True))
+        # # print(H_dot_list)
+        # H_dot = cp.hstack(H_dot_list) # Na(Na+1)/2 x Nw
 
         # define objective, constraints and problem
         objective = cp.Minimize(cp.sum_squares(U) + p * delta**2)
         constraints = [
-            F_dot <= -gamma * F + delta,
-            H_dot >= -alpha * H
+            F_dot <= -gamma * F + delta
         ]
         problem = cp.Problem(objective, constraints)
 
@@ -296,7 +297,18 @@ class MARS():
         # Solve the problem using OSQP with customized options
         result = problem.solve(solver = 'OSQP', **solver_options)
 
-        return U.value
+        # Check the results
+        if np.isnan(problem.value).any() == True:
+            print("Nan encountered!")
+            return np.zeros((Na,Nw)), 0.0, 0.0
+        elif U.value is None or F_dot.value is None:
+            print("None type returned")
+            return np.zeros((Na,Nw)), 0.0, 0.0
+        else:
+            return U.value, F, F_dot.value
+
+
+
 
 
     # function to perform optimization iterations at a given beta

@@ -18,8 +18,15 @@ import supporting_functions
 
 class flpoAgent():
 
-    def __init__(self, n_wp:int, sd:list, sched:np.ndarray, 
-                speedLim:np.ndarray, process_T:np.ndarray, INF:float):
+    def __init__(
+        self, 
+        n_wp:int, 
+        sd:list, 
+        sched:np.ndarray, 
+        speedLim:np.ndarray, 
+        process_T:np.ndarray, 
+        INF:float,
+        offset_energy:bool):
 
         assert(sd[0] != sd[1])
         self.n_wp = n_wp # number of waypoints
@@ -34,20 +41,21 @@ class flpoAgent():
         self.route = []
         self.fin_sched = []
         self.t_process = process_T # processing time of the vehicle at the waypoints
+        self.offset_energy = offset_energy
 
 
     def speedConsPenalty(self, transitSchedMat, distMat, gamma, coeff):
         assert(transitSchedMat.shape==distMat.shape)
         vmin = self.speedLim[0]
         vmax = self.speedLim[1]
-        # P_up = supporting_functions.myPenaltyFunc(transitSchedMat - distMat/self.speedLim[0], gamma, coeff)
-        # P_low = supporting_functions.myPenaltyFunc(distMat/self.speedLim[1] - transitSchedMat, gamma, coeff)
-        # assert(P_up.shape == P_low.shape)
-        # return P_up + P_low
-        X = vmin/(vmax-vmin) * (transitSchedMat * vmax - distMat)/distMat
-        P = supporting_functions.myPenaltyFunc1(X, coeff)
-        assert(P.shape == X.shape)
-        return P
+        P_up = supporting_functions.myPenaltyFunc(transitSchedMat - distMat/self.speedLim[0], gamma, coeff)
+        P_low = supporting_functions.myPenaltyFunc(distMat/self.speedLim[1] - transitSchedMat, gamma, coeff)
+        assert(P_up.shape == P_low.shape)
+        return P_up + P_low
+        # X = vmin/(vmax-vmin) * (transitSchedMat * vmax - distMat)/distMat
+        # P = supporting_functions.myPenaltyFunc1(X, coeff)
+        # assert(P.shape == X.shape)
+        # return P
 
 
     def returnStageWiseCost(self, sched, distMat, gamma, coeff):
@@ -136,14 +144,19 @@ class flpoAgent():
                 freeEnergy_flip[i] = Xi_flip[i]
             else:
                 Lambda_flip[i] = Xi_flip[i] + np.tile(np.transpose(freeEnergy_flip[i-1]), (Xi_flip[i].shape[0],1))
+                offset_mat = np.ones(shape=Lambda_flip[i].shape)
+                offset_mat[Lambda_flip[i] >= self.INF] = 0.0
+                m = offset_mat.sum(axis=1, keepdims=True)
+                # print(f'stage:{K-i}\n\toffset_mat:\n {offset_mat}\n\tLambda:\n{Lambda_flip[i]}')
                 minLambda = Lambda_flip[i].min(axis=1,keepdims=True)
                 freeEnergy_flip[i] = -1/beta*np.log(
-                    np.exp(-beta*(Lambda_flip[i] - minLambda)).sum(axis=1,keepdims=True)) + minLambda
+                    np.exp(-beta*(Lambda_flip[i] - minLambda)).sum(axis=1,keepdims=True)) + minLambda + self.offset_energy*1/beta*np.log(m)
             if returnPb:
                 p_flip[i] = np.exp(-beta*(Lambda_flip[i]-freeEnergy_flip[i]))
         tf = time.time()
         finalCost = np.sum(freeEnergy_flip[K-1])
         return Lambda_flip[::-1], freeEnergy_flip[::-1], finalCost, tf-t0, p_flip[::-1]
+
 
     def getFreeEnergy_s(self, sched, distMat, beta, gamma, coeff):
         Xi = self.returnStageWiseCost(sched, distMat, gamma, coeff)
