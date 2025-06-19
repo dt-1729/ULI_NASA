@@ -114,17 +114,22 @@ class flpoAgent():
         G_w2w = np.zeros((N,N,N))
         K = self.stageHorizon
         G_flip = [0]*K
+        mask = np.ones((N,N))
+        mask[distMat>=self.INF] = 0.0
 
         # compute gradient for w2w transitions
         for k in range(N):
-            G_w2w[k,k,:] = sched[k] - sched + self.mean_speed/distMat[k,:]
-            G_w2w[k,:,k] = sched[k] - sched - self.mean_speed/distMat[:,k]
+            G_w2w[k,k,:] = 2*(sched[k] - sched + distMat[k,:]/self.mean_speed) * mask[k,:]
+            G_w2w[k,:,k] = 2*(sched[k] - sched - distMat[:,k]/self.mean_speed) * mask[:,k]
 
         for i in range(K):
             if i == 0: # penultimate stage to destination
                 G_flip[i] = G_w2w[:,:,self.d].reshape(-1,N,1)
             elif i == K-1: # start to first stage
-                G_flip[i] = G_w2w[:,self.s,:].reshape(-1,1,N)
+                G_start = (G_w2w[:,self.s,:]).reshape(-1,1,N)
+                G_off = np.zeros(G_start.shape)
+                G_off[self.s, :, :] = np.ones(N)*2*sched[self.s]*mask[self.s,:]
+                G_flip[i] = G_start + G_off
             else:
                 G_flip[i] = G_w2w
 
@@ -135,27 +140,36 @@ class flpoAgent():
         t0 = time.time()
         K = self.stageHorizon
         Lambda_flip = [0]*K
-        freeEnergy_flip = [0]*K
+        Value_flip = [0]*K
         Xi_flip = Xi_s[::-1]
         p_flip = [0]*K
         for i in range(K):
             if i == 0:
                 Lambda_flip[i] = Xi_flip[i]
-                freeEnergy_flip[i] = Xi_flip[i]
+                Value_flip[i] = Xi_flip[i]
+                print(f'i:{i}\tXi:{Xi_flip[i]}')
+                print(f'i:{i}\tLambda:{Lambda_flip[i]}')
+                print(f'i:{i}\tValue:{Value_flip[i]}')
             else:
-                Lambda_flip[i] = Xi_flip[i] + np.tile(np.transpose(freeEnergy_flip[i-1]), (Xi_flip[i].shape[0],1))
+                Lambda_flip[i] = Xi_flip[i] + np.tile(np.transpose(Value_flip[i-1]), (Xi_flip[i].shape[0],1))
                 offset_mat = np.ones(shape=Lambda_flip[i].shape)
                 offset_mat[Lambda_flip[i] >= self.INF] = 0.0
                 m = offset_mat.sum(axis=1, keepdims=True)
-                # print(f'stage:{K-i}\n\toffset_mat:\n {offset_mat}\n\tLambda:\n{Lambda_flip[i]}')
                 minLambda = Lambda_flip[i].min(axis=1,keepdims=True)
-                freeEnergy_flip[i] = -1/beta*np.log(
-                    np.exp(-beta*(Lambda_flip[i] - minLambda)).sum(axis=1,keepdims=True)) + minLambda + self.offset_energy*1/beta*np.log(m)
+                exp_beta = np.exp(-beta*(Lambda_flip[i] - minLambda))
+                log_exp_beta = np.log(exp_beta.sum(axis=1,keepdims=True))
+                Value_flip[i] = -1/beta*log_exp_beta + minLambda #+ 0*self.offset_energy*1/beta*np.log(m)
+                print(f'i:{i}\tXi:{Xi_flip[i]}')
+                print(f'i:{i}\tLambda:{Lambda_flip[i]}')
+                print(f'i:{i}\toffset_mat:{offset_mat}')
+                print(f'i:{i}\texp_beta:{exp_beta}')
+                print(f'i:{i}\tlog_exp_beta:{log_exp_beta}\tminLambda:{minLambda}')
+                print(f'i:{i}\tValue:{Value_flip[i]}')
             if returnPb:
-                p_flip[i] = np.exp(-beta*(Lambda_flip[i]-freeEnergy_flip[i]))
+                p_flip[i] = np.exp(-beta*(Lambda_flip[i]-Value_flip[i]))
         tf = time.time()
-        finalCost = np.sum(freeEnergy_flip[K-1])
-        return Lambda_flip[::-1], freeEnergy_flip[::-1], finalCost, tf-t0, p_flip[::-1]
+        finalCost = np.sum(Value_flip[K-1])
+        return Lambda_flip[::-1], Value_flip[::-1], finalCost, tf-t0, p_flip[::-1]
 
 
     def getFreeEnergy_s(self, sched, distMat, beta, gamma, coeff):

@@ -222,7 +222,8 @@ class MARS():
         for i,a in enumerate(self.agents):
             GD_a = a.returnStagewiseGrad_v1(sched_mat[i,:], self.dist_mat)
             P_a = a.getPathAssociations_v1(sched_mat[i,:], self.dist_mat, beta)
-            Grad_F[i,:], _ = a.backPropDP_grad(GD_a, P_a)
+            G_Fa, _ = a.backPropDP_grad(GD_a, P_a)
+            Grad_F[i,:] = G_Fa
 
         return Grad_F
 
@@ -250,6 +251,7 @@ class MARS():
                 Grad_H[i, start_row : start_row + n_rows, j+1:] = np.diag(KTi[j,j+1:])
                 start_row = j + n_rows
                 n_rows = n_rows-1
+        
         return H, Grad_H
 
 
@@ -265,6 +267,7 @@ class MARS():
         self.transportCost_v1(sched_mat, beta)
         F = np.sum(self.agent_weights * self.C_agents)
         Grad_F = self.grad_transportCost_v1(sched_mat, beta)
+        # print(f'inside CBF_control:\nGrad_F:{Grad_F}')
         F_dot = cp.sum(cp.multiply(self.agent_weights, cp.sum(cp.multiply(Grad_F, U), axis=1))) # Na x Nw
 
         # # get CBF and its dot
@@ -278,7 +281,7 @@ class MARS():
         # H_dot = cp.hstack(H_dot_list) # Na(Na+1)/2 x Nw
 
         # define objective, constraints and problem
-        objective = cp.Minimize(cp.sum_squares(U) + p * delta**2)
+        objective = cp.Minimize(cp.sum_squares(U) + p*delta**2)
         constraints = [
             F_dot <= -gamma * F + delta
         ]
@@ -300,15 +303,12 @@ class MARS():
         # Check the results
         if np.isnan(problem.value).any() == True:
             print("Nan encountered!")
-            return np.zeros((Na,Nw)), 0.0, 0.0
+            return np.zeros((Na,Nw)), 0.0, 0.0, 0.0
         elif U.value is None or F_dot.value is None:
             print("None type returned")
-            return np.zeros((Na,Nw)), 0.0, 0.0
+            return np.zeros((Na,Nw)), 0.0, 0.0, 0.0
         else:
-            return U.value, F, F_dot.value
-
-
-
+            return U.value, F, F_dot.value, delta.value
 
 
     # function to perform optimization iterations at a given beta
@@ -332,7 +332,6 @@ class MARS():
         cost_fun = res.fun
         computeTime = time.time() - t0
         return res.fun, res.x, computeTime
-
 
     # function to perform annealing
     def annealing(self, beta_lims, beta_grow, sched_vec0, init_sched_bounds, optimize_opt, allowPrintAnneal=False, allowPrintOptimize=False):
