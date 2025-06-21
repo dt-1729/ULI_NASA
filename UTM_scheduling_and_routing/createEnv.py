@@ -93,7 +93,8 @@ class MARS():
                 speedLim=self.speed_lim_mat[i,:], 
                 process_T=self.process_T[i,:], 
                 INF=self.INF,
-                offset_energy=self.offset_energy)
+                offset_energy=self.offset_energy,
+                net_mask=self.mask)
             list_agents.append(v)
         self.agents = list_agents
         pass
@@ -232,25 +233,25 @@ class MARS():
         Na = self.n_agents
 
         # define gradient as a 3D tensor
-        Grad_H = np.zeros((Nw, Na * (Na+1)//2, Na))
-        H = np.zeros((Na * (Na+1)//2, Nw))
+        Grad_H = np.zeros((Nw, Na * (Na-1)//2, Na))
+        H = np.zeros((Na * (Na-1)//2, Nw))
 
         # the following loop over waypoints is parallelizable
         for i in range(Nw):
             Ti = sched_mat[:,i]
             KTi = Ti - Ti.reshape(-1,1)
-            Hi_mat = KTi**2 - self.tolArray[i]**2
+            Hi_mat = KTi**2
             Hi_triu = np.triu_indices_from(Hi_mat, k=1)
-            H[:,i] = Hi_mat[Hi_triu]
-            
+            H[:,i] = Hi_mat[Hi_triu] - self.tolArray[i]**2
             # Compute gradient
             start_row = 0
             n_rows = Na-1
             for j in range(Na-1):
-                Grad_H[i, start_row : start_row + n_rows, j] = KTi[j+1:, j]
-                Grad_H[i, start_row : start_row + n_rows, j+1:] = np.diag(KTi[j,j+1:])
-                start_row = j + n_rows
+                Grad_H[i, start_row : start_row + n_rows, j] = 2*KTi[j+1:, j]
+                Grad_H[i, start_row : start_row + n_rows, j+1:] = np.diag(2*KTi[j,j+1:])
+                start_row = start_row + n_rows
                 n_rows = n_rows-1
+            # print(f'\nwp:{i}\nKti:{KTi}\nHi_mat:\n{Hi_mat}\nHi:\n{H[:,i]}\ngrad_Hi:\n{Grad_H[i,:,:]}')
         
         return H, Grad_H
 
@@ -262,6 +263,7 @@ class MARS():
         # control decision variables
         U = cp.Variable((Na,Nw))
         delta = cp.Variable(1)
+        # delta1 = cp.Variable(1)
 
         # get free energy and its dot
         self.transportCost_v1(sched_mat, beta)
@@ -270,21 +272,34 @@ class MARS():
         # print(f'inside CBF_control:\nGrad_F:{Grad_F}')
         F_dot = cp.sum(cp.multiply(self.agent_weights, cp.sum(cp.multiply(Grad_F, U), axis=1))) # Na x Nw
 
-        # # get CBF and its dot
-        # H, Grad_H = self.CBF(sched_mat)
-        # # UT = (U.T).reshape(-1,1,Na)
-        # H_dot_list = []
-        # for i in range(len(Grad_H)):
-        #     H_dot_list.append(
-        #         cp.sum(cp.multiply(Grad_H[i], cp.reshape(U[:,i], (1, Na), order='C')), axis=1, keepdims=True))
-        # # print(H_dot_list)
-        # H_dot = cp.hstack(H_dot_list) # Na(Na+1)/2 x Nw
+        # get collision avoidance CBF and its dot
+        H, Grad_H = self.CBF(sched_mat)
+        # UT = (U.T).reshape(-1,1,Na)
+        H_dot_list = []
+        for i in range(len(Grad_H)):
+            H_dot_list.append(
+                cp.sum(cp.multiply(Grad_H[i], cp.reshape(U[:,i], (1, Na), order='C')), axis=1, keepdims=True))
+        H_dot = cp.hstack(H_dot_list) # Na(Na+1)/2 x Nw
+        # print(H_dot.shape, H.shape)
+
+        # get T positivity CBF and its dot
+        T_dot = U
 
         # define objective, constraints and problem
         objective = cp.Minimize(cp.sum_squares(U) + p*delta**2)
+        
         constraints = [
-            F_dot <= -gamma * F + delta
+            F_dot <= -gamma * F + delta,
+            H_dot >= -alpha * H,
+            T_dot >= -alpha * sched_mat
         ]
+        # constraints = [
+        #     F_dot <= -gamma * F + delta,
+        #     T_dot >= -alpha * sched_mat
+        # ]
+        # constraints = [
+        #     F_dot <= -gamma * F + delta,
+        # ]
         problem = cp.Problem(objective, constraints)
 
         # Solver Options for OSQP
@@ -308,7 +323,7 @@ class MARS():
             print("None type returned")
             return np.zeros((Na,Nw)), 0.0, 0.0, 0.0
         else:
-            return U.value, F, F_dot.value, delta.value
+            return U.value, F, F_dot.value, delta.value, H_dot.value, H
 
 
     # function to perform optimization iterations at a given beta
@@ -731,7 +746,7 @@ def plot_waypoint_agent_schedules(
             plt.plot(time+t_process[vertex], y, '|', color=color, markersize=5, markeredgewidth=3)
             # plt.plot(time-t_process[vertex_prev]+dist_mat[vertex_prev,vertex]/v_max, y, '|', color=color, markersize=10, markeredgewidth=1)
             plt.text(time, y, rf'${{{vertex}}}$', color='black', fontsize=22, ha='center', va='bottom')
-            # vertex_prev = 
+            
     # Add a legend to show the mapping of colors to vertices
     for vertex, color in vertex_colors.items():
         plt.plot([], [], 'o', color=color, label=f"Vertex {vertex}")

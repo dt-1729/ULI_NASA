@@ -26,7 +26,8 @@ class flpoAgent():
         speedLim:np.ndarray, 
         process_T:np.ndarray, 
         INF:float,
-        offset_energy:bool):
+        offset_energy:bool,
+        net_mask:np.ndarray):
 
         assert(sd[0] != sd[1])
         self.n_wp = n_wp # number of waypoints
@@ -42,6 +43,10 @@ class flpoAgent():
         self.fin_sched = []
         self.t_process = process_T # processing time of the vehicle at the waypoints
         self.offset_energy = offset_energy
+        self.net_mask = net_mask.copy()
+        self.net_mask[self.d,:] = 0
+        self.net_mask[self.d, self.d] = 1
+        self.n_stagewise_paths()
 
 
     def speedConsPenalty(self, transitSchedMat, distMat, gamma, coeff):
@@ -56,6 +61,22 @@ class flpoAgent():
         # P = supporting_functions.myPenaltyFunc1(X, coeff)
         # assert(P.shape == X.shape)
         # return P
+
+    
+    def n_stagewise_paths(self):
+        K = self.stageHorizon
+        n_paths = [0]*K
+        mask = self.net_mask
+        for i in range(K):
+            if i == 0: # start to first intermediate stage
+                n_paths[i] = np.sum(mask[self.s,:],keepdims=True)
+            elif i == K-1: # penultimate to final stage
+                n_paths[i] = mask[:,self.d].reshape(-1,1)
+            else:
+                n_paths[i] = np.sum(mask, axis=1, keepdims=True)
+
+        self.n_paths = n_paths
+        pass
 
 
     def returnStageWiseCost(self, sched, distMat, gamma, coeff):
@@ -89,23 +110,22 @@ class flpoAgent():
         K = self.stageHorizon
         Xi_flip = [0]*K
         dt_w2w = np.tile(sched, (self.n_wp, 1)) - np.tile(sched.reshape(-1,1), (1, self.n_wp))
-        dt_w2d = (np.array([sched[self.d]]) - sched).reshape(-1,1)
+        dt_w2d = (np.array([sched[self.d]]) - sched).reshape(-1,1) 
         dt_n2w = sched - np.array([sched[self.s]])
-
-        dt_w2w[distMat==self.INF] = self.INF
-        dt_w2d[distMat[:,self.d]==self.INF] = self.INF
-        dt_n2w[distMat[self.s,:]==self.INF] = self.INF
 
         for i in range(K):
             if i == 0: # penultimate stage to destination
-                Xi_flip[i] = (dt_w2d - distMat[:,self.d].reshape(-1,1)/self.mean_speed)**2
-                Xi_flip[i][self.d,:] = 0.0
+                Xi_flip[i] = (dt_w2d - distMat[:,self.d].reshape(-1,1)/self.mean_speed)**2 + (distMat[:,self.d].reshape(-1,1)/self.mean_speed)**2
+                Xi_flip[i][self.net_mask[:,self.d].reshape(-1,1)==0] = self.INF
+                Xi_flip[i][self.d,:] = 0
             elif i>0 and i<K-1: # internal stages
-                Xi_flip[i] = (dt_w2w - distMat/self.mean_speed)**2
-                Xi_flip[i][self.d,self.d] = 0.0
+                Xi_flip[i] = (dt_w2w - distMat/self.mean_speed)**2 + (distMat/self.mean_speed)**2
+                Xi_flip[i][self.net_mask == 0] = self.INF
+                Xi_flip[i][self.d, self.d] = 0.0
             elif i == K-1: # starting stage to 1st stage
                 Xi_flip[i] = np.expand_dims(
-                    sched[self.s]**2 + (dt_n2w - distMat[self.s,:]/self.mean_speed)**2, axis=0)
+                    sched[self.s]**2 + (dt_n2w - distMat[self.s,:]/self.mean_speed)**2, axis=0) + (distMat[self.s,:]/self.mean_speed)**2
+                Xi_flip[i][self.net_mask[self.s,None] == 0] = self.INF
         return Xi_flip[::-1]
 
 
@@ -114,24 +134,25 @@ class flpoAgent():
         G_w2w = np.zeros((N,N,N))
         K = self.stageHorizon
         G_flip = [0]*K
-        mask = np.ones((N,N))
-        mask[distMat>=self.INF] = 0.0
+        mask = self.net_mask
 
         # compute gradient for w2w transitions
         for k in range(N):
-            G_w2w[k,k,:] = 2*(sched[k] - sched + distMat[k,:]/self.mean_speed) * mask[k,:]
-            G_w2w[k,:,k] = 2*(sched[k] - sched - distMat[:,k]/self.mean_speed) * mask[:,k]
+            G_w2w[k,k,:] = 2*(sched[k] - sched + distMat[k,:]/self.mean_speed) 
+            G_w2w[k,:,k] = 2*(sched[k] - sched - distMat[:,k]/self.mean_speed)
 
         for i in range(K):
             if i == 0: # penultimate stage to destination
-                G_flip[i] = G_w2w[:,:,self.d].reshape(-1,N,1)
+                G_flip[i] = G_w2w[:,:,self.d].reshape(-1,N,1)* mask[:,self.d].reshape(-1,1)
+                G_flip[i][:,self.d,:] = 0
             elif i == K-1: # start to first stage
-                G_start = (G_w2w[:,self.s,:]).reshape(-1,1,N)
+                G_start = (G_w2w[:,self.s,:]).reshape(-1,1,N)*mask[self.s,:]
                 G_off = np.zeros(G_start.shape)
                 G_off[self.s, :, :] = np.ones(N)*2*sched[self.s]*mask[self.s,:]
                 G_flip[i] = G_start + G_off
             else:
-                G_flip[i] = G_w2w
+                G_flip[i] = G_w2w * mask
+                G_flip[i][:,self.d,:] = 0
 
         return G_flip[::-1]
     
@@ -143,30 +164,30 @@ class flpoAgent():
         Value_flip = [0]*K
         Xi_flip = Xi_s[::-1]
         p_flip = [0]*K
+        n_paths_flip = self.n_paths[::-1]
         for i in range(K):
             if i == 0:
                 Lambda_flip[i] = Xi_flip[i]
                 Value_flip[i] = Xi_flip[i]
-                print(f'i:{i}\tXi:{Xi_flip[i]}')
-                print(f'i:{i}\tLambda:{Lambda_flip[i]}')
-                print(f'i:{i}\tValue:{Value_flip[i]}')
+                minLambda = Lambda_flip[i].min(axis=1,keepdims=True)
+                exp_beta = np.exp(-beta*(Lambda_flip[i] - minLambda))
+                # print(f'i:{i}\tXi:{Xi_flip[i]}')
+                # print(f'i:{i}\tLambda:{Lambda_flip[i]}')
+                # print(f'i:{i}\tValue:{Value_flip[i]}')
             else:
                 Lambda_flip[i] = Xi_flip[i] + np.tile(np.transpose(Value_flip[i-1]), (Xi_flip[i].shape[0],1))
-                offset_mat = np.ones(shape=Lambda_flip[i].shape)
-                offset_mat[Lambda_flip[i] >= self.INF] = 0.0
-                m = offset_mat.sum(axis=1, keepdims=True)
+                m = n_paths_flip[i]
                 minLambda = Lambda_flip[i].min(axis=1,keepdims=True)
                 exp_beta = np.exp(-beta*(Lambda_flip[i] - minLambda))
                 log_exp_beta = np.log(exp_beta.sum(axis=1,keepdims=True))
-                Value_flip[i] = -1/beta*log_exp_beta + minLambda #+ 0*self.offset_energy*1/beta*np.log(m)
-                print(f'i:{i}\tXi:{Xi_flip[i]}')
-                print(f'i:{i}\tLambda:{Lambda_flip[i]}')
-                print(f'i:{i}\toffset_mat:{offset_mat}')
-                print(f'i:{i}\texp_beta:{exp_beta}')
-                print(f'i:{i}\tlog_exp_beta:{log_exp_beta}\tminLambda:{minLambda}')
-                print(f'i:{i}\tValue:{Value_flip[i]}')
+                Value_flip[i] = -1/beta*log_exp_beta + minLambda + self.offset_energy*1/beta*np.log(m)
+                # print(f'i:{i}\tXi:{Xi_flip[i]}')
+                # print(f'i:{i}\tLambda:{Lambda_flip[i]}\n\tminLambda:{minLambda}')
+                # print(f'i:{i}\texp_beta:{exp_beta}')
+                # print(f'i:{i}\tlog_exp_beta:{log_exp_beta}')
+                # print(f'i:{i}\tValue:{Value_flip[i]}')
             if returnPb:
-                p_flip[i] = np.exp(-beta*(Lambda_flip[i]-Value_flip[i]))
+                p_flip[i] = exp_beta/exp_beta.sum(axis=1, keepdims=True)
         tf = time.time()
         finalCost = np.sum(Value_flip[K-1])
         return Lambda_flip[::-1], Value_flip[::-1], finalCost, tf-t0, p_flip[::-1]
