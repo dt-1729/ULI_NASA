@@ -34,6 +34,7 @@ class MARS():
         self.initAgentParams(seed=seed)
         self.initFlpoAgents()
         self.printInitializationData(printFlag)
+        self.active_waypoints = range(self.n_waypoints)
 
     # function to create waypoints and the corresponding adjacency matrix
     def initWaypoints(self, wp_params:dict, seed:int):
@@ -229,20 +230,21 @@ class MARS():
         return Grad_F
 
     def CBF(self, sched_mat):
-        Nw = self.n_waypoints
+        Nw = len(self.active_waypoints)
         Na = self.n_agents
 
         # define gradient as a 3D tensor
-        Grad_H = np.zeros((Nw, Na * (Na-1)//2, Na))
         H = np.zeros((Na * (Na-1)//2, Nw))
+        Grad_H = np.zeros((Nw, Na * (Na-1)//2, Na))
 
         # the following loop over waypoints is parallelizable
-        for i in range(Nw):
-            Ti = sched_mat[:,i]
+        for i, wp in enumerate(self.active_waypoints):
+            # print(f'i:{i}\twp:{wp}')
+            Ti = sched_mat[:,wp]
             KTi = Ti - Ti.reshape(-1,1)
             Hi_mat = KTi**2
             Hi_triu = np.triu_indices_from(Hi_mat, k=1)
-            H[:,i] = Hi_mat[Hi_triu] - self.tolArray[i]**2
+            H[:,i] = Hi_mat[Hi_triu] - self.tolArray[wp]**2
             # Compute gradient
             start_row = 0
             n_rows = Na-1
@@ -272,34 +274,35 @@ class MARS():
         # print(f'inside CBF_control:\nGrad_F:{Grad_F}')
         F_dot = cp.sum(cp.multiply(self.agent_weights, cp.sum(cp.multiply(Grad_F, U), axis=1))) # Na x Nw
 
-        # get collision avoidance CBF and its dot
-        H, Grad_H = self.CBF(sched_mat)
-        # UT = (U.T).reshape(-1,1,Na)
-        H_dot_list = []
-        for i in range(len(Grad_H)):
-            H_dot_list.append(
-                cp.sum(cp.multiply(Grad_H[i], cp.reshape(U[:,i], (1, Na), order='C')), axis=1, keepdims=True))
-        H_dot = cp.hstack(H_dot_list) # Na(Na+1)/2 x Nw
-        # print(H_dot.shape, H.shape)
-
-        # get T positivity CBF and its dot
-        T_dot = U
-
         # define objective, constraints and problem
         objective = cp.Minimize(cp.sum_squares(U) + p*delta**2)
         
-        constraints = [
-            F_dot <= -gamma * F + delta,
-            H_dot >= -alpha * H,
-            T_dot >= -alpha * sched_mat
-        ]
-        # constraints = [
-        #     F_dot <= -gamma * F + delta,
-        #     T_dot >= -alpha * sched_mat
-        # ]
-        # constraints = [
-        #     F_dot <= -gamma * F + delta,
-        # ]
+        # pick agent start schedules and its dot
+        start_indices = np.array([[i, a.s] for i, a in enumerate(self.agents)])
+        tup_start_indices = (start_indices[:,0], start_indices[:,1])
+
+        # bypass CBF constraint if no waypoint is active
+        if not self.active_waypoints:
+            constraints = [
+                F_dot <= -gamma * F + delta, # to decrease free energy
+                U[tup_start_indices] >= -alpha * (sched_mat[tup_start_indices]) # to maintain time-positivity
+            ]
+        else:
+            # get collision avoidance CBF and its dot
+            H, Grad_H = self.CBF(sched_mat)
+            H_dot_list = []
+            for i, wp in enumerate(self.active_waypoints):
+                H_dot_list.append(
+                    cp.sum(cp.multiply(Grad_H[i], cp.reshape(U[:,wp], (1,Na), order='C')), axis=1, keepdims=True)
+                )
+            H_dot = cp.hstack(H_dot_list) # Na(Na+1)/2 x Nw
+
+            constraints = [
+                F_dot <= -gamma * F + delta,
+                H_dot >= -alpha * H,
+                U[tup_start_indices] >= -alpha * (sched_mat[tup_start_indices])
+            ]
+
         problem = cp.Problem(objective, constraints)
 
         # Solver Options for OSQP
@@ -323,7 +326,7 @@ class MARS():
             print("None type returned")
             return np.zeros((Na,Nw)), 0.0, 0.0, 0.0
         else:
-            return U.value, F, F_dot.value, delta.value, H_dot.value, H
+            return U.value, F, F_dot.value, delta.value
 
 
     # function to perform optimization iterations at a given beta
