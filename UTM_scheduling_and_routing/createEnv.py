@@ -70,7 +70,7 @@ class MARS():
         max_time = np.max(cdist(self.wp_locations, self.wp_locations, 'euclidean'))/np.min(min_speeds)
         self.sched_mat = np.random.uniform(self.t_start_min, 100.0, (na, nw))
         self.sched_mat[np.arange(na),self.sd_mat[:,0]] = np.ones(na)*self.t_start_min
-        self.process_T = np.random.uniform(3,5,(na, nw))
+        self.process_T = np.random.uniform(3,5,(na, nw))*0
         self.process_T[np.arange(na),self.sd_mat[:,1]] = np.zeros(na)
         
         np.random.seed(None)
@@ -258,6 +258,15 @@ class MARS():
         return H, Grad_H
 
 
+    def get_active_waypoints(self,sched_mat):
+        H, _ = self.CBF(sched_mat)
+        A = np.ones(H.shape)
+        A[H>=0] = 0.0
+        rho = A.sum(axis=0)
+        active_waypoints = list(np.where(rho > 0)[0])
+        return active_waypoints
+
+
     def get_CBF_control(self, sched_mat, beta, gamma, alpha, p):
 
         Nw = self.n_waypoints
@@ -282,7 +291,7 @@ class MARS():
         tup_start_indices = (start_indices[:,0], start_indices[:,1])
 
         # bypass CBF constraint if no waypoint is active
-        if not self.active_waypoints:
+        if not self.active_waypoints or self.active_waypoints is None:
             constraints = [
                 F_dot <= -gamma * F + delta, # to decrease free energy
                 U[tup_start_indices] >= -alpha * (sched_mat[tup_start_indices]) # to maintain time-positivity
@@ -350,6 +359,77 @@ class MARS():
         cost_fun = res.fun
         computeTime = time.time() - t0
         return res.fun, res.x, computeTime
+
+    
+    def CBF_CLF_at_beta(
+        self,
+        beta, 
+        Tb, 
+        dt_init, 
+        dt_min, 
+        dt_max, 
+        Tf, 
+        gamma, 
+        alpha, 
+        p, 
+        stop_tol,
+        stop_tol_weight,
+        verbose=0
+    ):
+    
+        T_prev = Tb
+        dt_prev = dt_init
+        theta_prev = np.Inf
+        t = 0.0
+        iter_count = 0
+        F_prev = 1.0
+        while t < Tf:
+            # get control
+            U, F, Fdot, delta = self.get_CBF_control(T_prev, beta, gamma, alpha, p)
+
+            # compute new stepsize
+            if iter_count > 0:
+                step_size_1 = np.sqrt(1 + theta_prev) * dt_prev
+                grad_diff = np.linalg.norm(U - U_old) + 1e-6  # Regularization term to prevent division by zero
+                step_size_2 = np.linalg.norm(T_prev - T_old) / (2 * grad_diff)  
+                dt = min(max(step_size_2, dt_min), dt_max)  # Keep dt in range [dt_min, dt_max]
+            else:
+                dt = dt_init
+
+            # Euler update
+            T_next = T_prev + dt * U
+
+            # compute new theta_k
+            if iter_count > 0:
+                theta = dt/dt_prev
+            else:
+                theta = 1.0
+
+            tol_T = np.max(np.abs(T_next-T_prev)) #/np.max(np.abs(T_next))
+            tol_F = np.abs(F - F_prev)
+            tol_Fdot = abs(Fdot * dt)
+            tol = np.sum(stop_tol_weight * np.array([tol_T, tol_F, tol_Fdot]))
+            if tol < stop_tol:
+                if verbose == 1 or verbose == 2:
+                    print(f'\tt:{t:.3e}\tFdot:{Fdot:.4f}\tF:{F:.4f}\tdt:{dt:.4e}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}')
+                    # print(f'\nH:\n{Hdot+alpha * H}')
+                break
+            if verbose == 2:
+                print(f'\tt:{t:.3e}\tFdot:{Fdot:.4f}\tF:{F:.4f}\tdt:{dt:.4e}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}')
+                # print(f'\nH:\n{Hdot+alpha * H}')
+
+            # Update variables for next iteration
+            T_old = T_prev
+            U_old = U
+            dt_prev = dt
+            theta_prev = theta
+            T_prev = T_next
+            t += dt
+            iter_count += 1
+            F_prev = F
+
+        return T_prev, U, F, Fdot, tol, delta[0]
+
 
     # function to perform annealing
     def annealing(self, beta_lims, beta_grow, sched_vec0, init_sched_bounds, optimize_opt, allowPrintAnneal=False, allowPrintOptimize=False):
@@ -494,14 +574,63 @@ class MARS():
 
         return C_arr, sched_vec, rt_arr, reach_mat_beta_data, filter_wp_beta_data, beta_arr, gamma_arr, conflict_C_arr, Pb_a
 
+    def anneal(
+        self,
+        beta_arr,
+        T0,
+        active_waypoints,
+        optimizer,
+        annealPrint=False,
+    ):
 
+        Tb = T0
+        self.active_waypoints = active_waypoints
+
+        if optimizer['name'] == 'cbf_clf':
+            dt_init         = optimizer['dt_init']
+            dt_min          = optimizer['dt_min']
+            dt_max          = optimizer['dt_max']
+            Tf              = optimizer['Tf']
+            gamma           = optimizer['gamma']
+            alpha           = optimizer['alpha']
+            p               = optimizer['p']
+            stop_tol        = optimizer['stop_tol']
+            stop_tol_weight = optimizer['stop_tol_weight']
+            verbose         = optimizer['verbose']
+
+        for b in beta_arr:
+            if active_waypoints is None:
+                self.active_waypoints = self.get_active_waypoints(Tb)
+            else:
+                self.active_waypoints = active_waypoints
+
+            if optimizer['name'] == 'cbf_clf':
+                Tb, Ub, Fb, Fdot_b, tolb, delta_b = self.CBF_CLF_at_beta(
+                    b, Tb, dt_init, dt_min, dt_max, 
+                    Tf, gamma, alpha, p, 
+                    stop_tol=stop_tol, 
+                    stop_tol_weight=stop_tol_weight/np.sum(stop_tol_weight), 
+                    verbose=verbose)
+            total_cost = np.sum(self.agent_weights * self.C_agents)
+
+
+            if annealPrint:
+                print(f'\nbeta: {b:.4e}\tcost: {total_cost:.3f}\tdot_cost: {Fdot_b:.3f}\ttolb: {tolb:.3e}\tdelta_b: {delta_b:.3f}\tn_active_waypoints:{self.active_waypoints}')
+
+        # compute final probability associations
+        Pb_a = []
+        for i,a in enumerate(self.agents):
+            Pb = a.getPathAssociations_v1(Tb[i,:], self.dist_mat, beta_arr[-1])
+            Pb_a.append(Pb)
+
+        return Tb, Fb, Pb_a
 
 def calc_agent_routes_and_schedules(mars:MARS, Pb_a:list, printRoutes=False):
     routes = []
     fin_schedules = []
     
     for i,a in enumerate(mars.agents):
-        a.calc_route_and_schedule(sched=mars.sched_mat[i,:],dist_mat=mars.dist_mat, Pb=Pb_a[i])
+        a.calc_route_and_schedule(sched=mars.sched_mat[i,:], dist_mat=mars.dist_mat, Pb=Pb_a[i])
         routes.append(a.route)
         fin_schedules.append(a.fin_sched)
         if printRoutes:
@@ -511,7 +640,7 @@ def calc_agent_routes_and_schedules(mars:MARS, Pb_a:list, printRoutes=False):
 
 
 # function to show the network
-def plotNetwork(mars:MARS, figuresize, routes, agent_colors, showEdgeLength=True, plotPaths=False):
+def plotNetwork(mars:MARS, figuresize, routes, agent_colors, showEdgeLength=True):
 
     nw = mars.n_waypoints
     na = mars.n_agents
@@ -567,7 +696,7 @@ def plotNetwork(mars:MARS, figuresize, routes, agent_colors, showEdgeLength=True
                 ha='left', va='bottom', fontweight='bold')
 
     # Draw each agent's path
-    if plotPaths:
+    if routes != []:
         offset_mag = 5
         for i, ai in enumerate(mars.agents):
             # ai.calc_route(sched=mars.sched_mat[0,:],dist_mat=mars.dist_mat, beta=1000, gamma=1000)
@@ -605,7 +734,7 @@ def plotNetwork(mars:MARS, figuresize, routes, agent_colors, showEdgeLength=True
     # plt.ylabel(rf'$Y$')
     # plt.title('UAV Network of pathways')
     # Show legend for start and destination nodes
-    # if plotPaths:
+    # if routes != []:
     #     plt.legend(handles=[node_handle, pathway_handle, start_handle, dest_handle, path_handle], loc='lower center', handletextpad=2.0, 
     #     bbox_to_anchor=(1.05, 1), borderaxespad=0.)
     # else:
