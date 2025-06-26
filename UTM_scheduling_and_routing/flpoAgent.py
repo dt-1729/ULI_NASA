@@ -124,7 +124,7 @@ class flpoAgent():
                 Xi_flip[i][self.d, self.d] = 0.0
             elif i == K-1: # starting stage to 1st stage
                 Xi_flip[i] = np.expand_dims(
-                    sched[self.s]**2 + (dt_n2w - distMat[self.s,:]/self.mean_speed)**2, axis=0) + (distMat[self.s,:]/self.mean_speed)**2
+                    sched[self.s]**2 + (dt_n2w - distMat[self.s,:]/self.mean_speed)**2 + (distMat[self.s,:]/self.mean_speed)**2, axis=0)
                 Xi_flip[i][self.net_mask[self.s,None] == 0] = self.INF
         return Xi_flip[::-1]
 

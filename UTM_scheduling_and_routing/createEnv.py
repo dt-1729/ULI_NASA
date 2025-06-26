@@ -229,8 +229,9 @@ class MARS():
 
         return Grad_F
 
-    def CBF(self, sched_mat):
-        Nw = len(self.active_waypoints)
+
+    def CBF(self, sched_mat, waypoints, returnGrad=True):
+        Nw = len(waypoints)
         Na = self.n_agents
 
         # define gradient as a 3D tensor
@@ -238,33 +239,43 @@ class MARS():
         Grad_H = np.zeros((Nw, Na * (Na-1)//2, Na))
 
         # the following loop over waypoints is parallelizable
-        for i, wp in enumerate(self.active_waypoints):
+        for i, wp in enumerate(waypoints):
             # print(f'i:{i}\twp:{wp}')
             Ti = sched_mat[:,wp]
             KTi = Ti - Ti.reshape(-1,1)
             Hi_mat = KTi**2
             Hi_triu = np.triu_indices_from(Hi_mat, k=1)
             H[:,i] = Hi_mat[Hi_triu] - self.tolArray[wp]**2
-            # Compute gradient
-            start_row = 0
-            n_rows = Na-1
-            for j in range(Na-1):
-                Grad_H[i, start_row : start_row + n_rows, j] = 2*KTi[j+1:, j]
-                Grad_H[i, start_row : start_row + n_rows, j+1:] = np.diag(2*KTi[j,j+1:])
-                start_row = start_row + n_rows
-                n_rows = n_rows-1
+            if returnGrad==True:
+                # Compute gradient
+                start_row = 0
+                n_rows = Na-1
+                for j in range(Na-1):
+                    Grad_H[i, start_row : start_row + n_rows, j] = 2*KTi[j+1:, j]
+                    Grad_H[i, start_row : start_row + n_rows, j+1:] = np.diag(2*KTi[j,j+1:])
+                    start_row = start_row + n_rows
+                    n_rows = n_rows-1
             # print(f'\nwp:{i}\nKti:{KTi}\nHi_mat:\n{Hi_mat}\nHi:\n{H[:,i]}\ngrad_Hi:\n{Grad_H[i,:,:]}')
         
         return H, Grad_H
 
 
-    def get_active_waypoints(self,sched_mat):
-        H, _ = self.CBF(sched_mat)
-        A = np.ones(H.shape)
-        A[H>=0] = 0.0
-        rho = A.sum(axis=0)
-        active_waypoints = list(np.where(rho > 0)[0])
-        return active_waypoints
+    # def get_active_waypoints(self, sched_mat):
+    #     H, _ = self.CBF(sched_mat, range(self.n_waypoints), returnGrad=False)
+    #     A = np.ones(H.shape)
+    #     A[H>=0] = 0.0
+    #     rho = A.sum(axis=0)
+    #     active_waypoints = list(np.where(rho > 0)[0])
+    #     return active_waypoints
+
+    # def get_active_waypoints(self, filter_wp):
+    #     count = 0
+    #     active_waypoints = []
+    #     for i in range(self.n_waypoints):
+    #         if np.sum(filter_wp[:,i]) > 1:
+    #             active_waypoints.append(i)
+    #     active_waypoints = np.where(np.sum(filter_wp, axis=0)>=2)[0]
+    #     return active_waypoints
 
 
     def get_CBF_control(self, sched_mat, beta, gamma, alpha, p):
@@ -291,14 +302,14 @@ class MARS():
         tup_start_indices = (start_indices[:,0], start_indices[:,1])
 
         # bypass CBF constraint if no waypoint is active
-        if not self.active_waypoints or self.active_waypoints is None:
+        if self.active_waypoints == [] or self.active_waypoints == None:
             constraints = [
                 F_dot <= -gamma * F + delta, # to decrease free energy
                 U[tup_start_indices] >= -alpha * (sched_mat[tup_start_indices]) # to maintain time-positivity
             ]
         else:
             # get collision avoidance CBF and its dot
-            H, Grad_H = self.CBF(sched_mat)
+            H, Grad_H = self.CBF(sched_mat, self.active_waypoints, returnGrad=True)
             H_dot_list = []
             for i, wp in enumerate(self.active_waypoints):
                 H_dot_list.append(
@@ -326,7 +337,8 @@ class MARS():
 
         # Solve the problem using OSQP with customized options
         result = problem.solve(solver = 'OSQP', **solver_options)
-
+        if self.active_waypoints != [] and self.active_waypoints != None:
+            print(H, H_dot.value)
         # Check the results
         if np.isnan(problem.value).any() == True:
             print("Nan encountered!")
@@ -375,7 +387,7 @@ class MARS():
         stop_tol,
         stop_tol_weight,
         verbose=0
-    ):
+        ):
     
         T_prev = Tb
         dt_prev = dt_init
@@ -581,10 +593,9 @@ class MARS():
         active_waypoints,
         optimizer,
         annealPrint=False,
-    ):
+        ):
 
         Tb = T0
-        self.active_waypoints = active_waypoints
 
         if optimizer['name'] == 'cbf_clf':
             dt_init         = optimizer['dt_init']
@@ -600,10 +611,17 @@ class MARS():
 
         for b in beta_arr:
             if active_waypoints is None:
-                self.active_waypoints = self.get_active_waypoints(Tb)
+                reach_mat = self.calc_agent_reach_mat_v1(Tb, b)
+                filter_wp = np.ones(reach_mat.shape)
+                filter_wp[reach_mat <= 1e-10] = 0.0
+                self.active_waypoints = list(np.where(np.sum(filter_wp, axis=0)>=2)[0])
+                # print(self.active_waypoints)
+                # self.active_waypoints = self.get_active_waypoints(Tb)
             else:
                 self.active_waypoints = active_waypoints
 
+            self.tolArray = 5.0 * np.ones(self.n_waypoints) * b/(b+1)
+    
             if optimizer['name'] == 'cbf_clf':
                 Tb, Ub, Fb, Fdot_b, tolb, delta_b = self.CBF_CLF_at_beta(
                     b, Tb, dt_init, dt_min, dt_max, 
@@ -613,9 +631,8 @@ class MARS():
                     verbose=verbose)
             total_cost = np.sum(self.agent_weights * self.C_agents)
 
-
             if annealPrint:
-                print(f'\nbeta: {b:.4e}\tcost: {total_cost:.3f}\tdot_cost: {Fdot_b:.3f}\ttolb: {tolb:.3e}\tdelta_b: {delta_b:.3f}\tn_active_waypoints:{self.active_waypoints}')
+                print(f'\nbeta: {b:.4e}\tcost: {total_cost:.3f}\tdot_cost: {Fdot_b:.3f}\ttolb: {tolb:.3e}\tdelta_b: {delta_b:.3f}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}')
 
         # compute final probability associations
         Pb_a = []
