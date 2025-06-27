@@ -23,6 +23,7 @@ class MARS():
         wp_params, 
         seed, 
         offset_energy,
+        selfHop,
         printFlag):
 
         self.n_waypoints = n_waypoints
@@ -30,6 +31,7 @@ class MARS():
         self.tolArray = tolArray
         self.INF = 1e8
         self.offset_energy = offset_energy
+        self.selfHop = selfHop
         self.initWaypoints(wp_params, seed=seed)
         self.initAgentParams(seed=seed)
         self.initFlpoAgents()
@@ -95,6 +97,7 @@ class MARS():
                 process_T=self.process_T[i,:], 
                 INF=self.INF,
                 offset_energy=self.offset_energy,
+                selfHop=self.selfHop,
                 net_mask=self.mask)
             list_agents.append(v)
         self.agents = list_agents
@@ -337,8 +340,8 @@ class MARS():
 
         # Solve the problem using OSQP with customized options
         result = problem.solve(solver = 'OSQP', **solver_options)
-        if self.active_waypoints != [] and self.active_waypoints != None:
-            print(H, H_dot.value)
+        # if self.active_waypoints != [] and self.active_waypoints != None:
+            # print(H, H_dot.value)
         # Check the results
         if np.isnan(problem.value).any() == True:
             print("Nan encountered!")

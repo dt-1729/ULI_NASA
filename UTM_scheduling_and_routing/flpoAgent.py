@@ -27,6 +27,7 @@ class flpoAgent():
         process_T:np.ndarray, 
         INF:float,
         offset_energy:bool,
+        selfHop:bool,
         net_mask:np.ndarray):
 
         assert(sd[0] != sd[1])
@@ -43,9 +44,11 @@ class flpoAgent():
         self.fin_sched = []
         self.t_process = process_T # processing time of the vehicle at the waypoints
         self.offset_energy = offset_energy
+        self.selfHop = selfHop
         self.net_mask = net_mask.copy()
         self.net_mask[self.d,:] = 0
         self.net_mask[self.d, self.d] = 1
+        self.net_mask = self.net_mask + self.selfHop * np.eye(self.net_mask.shape[0])        
         self.n_stagewise_paths()
 
 
