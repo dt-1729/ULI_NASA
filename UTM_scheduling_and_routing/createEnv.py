@@ -68,6 +68,7 @@ class MARS():
         min_speeds = np.random.uniform(0.01,1.0,na).reshape(-1,1)
         max_speeds = np.random.uniform(60,75,na).reshape(-1,1)
         self.speed_lim_mat = np.concatenate((min_speeds,max_speeds), axis=1)
+        self.speed_vec = self.speed_lim_mat.mean(axis=1)
         self.t_start_min = 0.0
         max_time = np.max(cdist(self.wp_locations, self.wp_locations, 'euclidean'))/np.min(min_speeds)
         self.sched_mat = np.random.uniform(self.t_start_min, 100.0, (na, nw))
@@ -93,6 +94,7 @@ class MARS():
                 n_wp=nw, 
                 sd=self.sd_mat[i,:], 
                 sched=self.sched_mat[i,:],
+                speed=self.speed_vec[i],
                 speedLim=self.speed_lim_mat[i,:], 
                 process_T=self.process_T[i,:], 
                 INF=self.INF,
@@ -110,7 +112,7 @@ class MARS():
             print('---------')
             print(f'wp_locations:\n{self.wp_locations} \nmask:\n{self.mask} \ndist_mat:\n{self.dist_mat} \nwp_weights:\n{self.wp_weights}')
             print('---------')
-            print(f'agent_weights:\n{self.agent_weights} \nsd_mat:\n{self.sd_mat} \neta_arr: \nprocessing_time:\n{self.process_T} \nspeed_lim_mat:\n{self.speed_lim_mat} \nsched_mat:\n{self.sched_mat}')
+            print(f'agent_weights:\n{self.agent_weights} \nsd_mat:\n{self.sd_mat} \neta_arr: \nprocessing_time:\n{self.process_T} \nspeed_lim_mat:\n{self.speed_lim_mat} \nsched_mat:\n{self.sched_mat} \nspeed_vec:\n{self.speed_vec}')
 
     def calc_agent_reach_mat(self, sched_mat, beta, gamma, coeff):
         reach_mat = []
@@ -120,16 +122,23 @@ class MARS():
             reach_mat.append(ag_reach)
         return np.array(reach_mat)
 
-    def calc_agent_reach_mat_v1(self, sched_mat, beta):
+    def calc_agent_reach_mat_v1(self, sched_mat, speed_vec, beta):
         reach_mat = []
         for i,ag in enumerate(self.agents):
-            Pb = ag.getPathAssociations_v1(sched_mat[i,:], self.dist_mat, beta)
+            Pb = ag.getPathAssociations_v1(sched_mat[i,:], speed_vec[i], self.dist_mat, beta)
             ag_reach = ag.calc_probability_of_reach(Pb)
             reach_mat.append(ag_reach)
         return np.array(reach_mat)
 
     # function to compute total vehicle cost of transportation based on min max speed
-    def transportCost(self, sched_mat:np.ndarray, beta:float, gamma:float, coeff:float, allowPrint=False):
+    def transportCost(
+        self, 
+        sched_mat:np.ndarray, 
+        beta:float, 
+        gamma:float, 
+        coeff:float, 
+        allowPrint=False):
+
         C_arr = np.zeros(self.n_agents)
         for i in range(self.n_agents):
             v = self.agents[i]
@@ -145,11 +154,17 @@ class MARS():
         pass
 
     # function to compute total vehicle cost of transportation based on mean speed
-    def transportCost_v1(self, sched_mat:np.ndarray, beta:float, allowPrint=False):
+    def transportCost_v1(
+        self, 
+        sched_mat:np.ndarray, 
+        speed_vec:np.ndarray, 
+        beta:float, 
+        allowPrint=False):
+
         C_arr = np.zeros(self.n_agents)
         for i in range(self.n_agents):
             v = self.agents[i]
-            v.getFreeEnergy_s_v1(sched_mat[i,:], self.dist_mat, beta)
+            v.getFreeEnergy_s_v1(sched_mat[i,:], speed_vec[i], self.dist_mat, beta)
             C_arr[i] = v.freeEnergy_s
         self.C_agents = C_arr
         
@@ -209,31 +224,38 @@ class MARS():
         C = np.sum(self.agent_weights*self.C_agents) + np.sum(self.C_wp_conflict) + 0.00*np.sum(np.abs(sched_vec))
         return C
 
-    # function to compute total cost
-    def totalCost_v1(self, sched_vec:np.ndarray, beta:float, gamma_c:float, coeff_c:float, filter_wp:np.ndarray):
-        assert(sched_vec.shape == (self.n_agents*self.n_waypoints,))
-        sched_mat = sched_vec.reshape(self.n_agents,self.n_waypoints)
-        self.transportCost_v1(sched_mat=sched_mat, beta=beta, allowPrint=False)
-        self.conflictCost(sched_mat=sched_mat, gamma=gamma_c, coeff=coeff_c, filter_wp=filter_wp)
-        nw = self.n_waypoints
-        na = self.n_agents
-        C = np.sum(self.agent_weights*self.C_agents) + np.sum(self.C_wp_conflict) + 0.00*np.sum(np.abs(sched_vec))
-        return C
+    # # function to compute total cost
+    # def totalCost_v1(
+    #     self, 
+    #     sched_vec:np.ndarray,
+    #     beta:float, 
+    #     gamma_c:float, 
+    #     coeff_c:float, 
+    #     filter_wp:np.ndarray):
 
-    def grad_transportCost_v1(self, sched_mat, beta):
-        # compute gradient of free energy of all UAVs w.r.t sched_mat
-        Grad_F = np.zeros(sched_mat.shape)
+    #     assert(sched_vec.shape == (self.n_agents*self.n_waypoints,))
+    #     sched_mat = sched_vec.reshape(self.n_agents,self.n_waypoints)
+    #     self.transportCost_v1(sched_mat=sched_mat, beta=beta, allowPrint=False)
+    #     self.conflictCost(sched_mat=sched_mat, gamma=gamma_c, coeff=coeff_c, filter_wp=filter_wp)
+    #     nw = self.n_waypoints
+    #     na = self.n_agents
+    #     C = np.sum(self.agent_weights*self.C_agents) + np.sum(self.C_wp_conflict) + 0.00*np.sum(np.abs(sched_vec))
+    #     return C
+
+    def grad_transportCost_v1(self, sched_mat, speed_vec, beta):
+        # compute gradient of free energy of all UAVs w.r.t sched_mat, speed
+        Grad_F = np.zeros(shape=(self.n_agents, self.n_waypoints+1))
         # the following loop is parallelizable
         for i,a in enumerate(self.agents):
-            GD_a = a.returnStagewiseGrad_v1(sched_mat[i,:], self.dist_mat)
-            P_a = a.getPathAssociations_v1(sched_mat[i,:], self.dist_mat, beta)
+            GD_a = a.returnStagewiseGrad_v1(sched_mat[i,:], speed_vec[i], self.dist_mat)
+            P_a = a.getPathAssociations_v1(sched_mat[i,:], speed_vec[i], self.dist_mat, beta)
             G_Fa, _ = a.backPropDP_grad(GD_a, P_a)
             Grad_F[i,:] = G_Fa
 
         return Grad_F
 
 
-    def CBF(self, sched_mat, waypoints, returnGrad=True):
+    def CBF_waypoints(self, sched_mat, waypoints, returnGrad=True):
         Nw = len(waypoints)
         Na = self.n_agents
 
@@ -262,6 +284,11 @@ class MARS():
         
         return H, Grad_H
 
+    # ToDo: define CBF (and its gradient) for speed constraints
+    def CBF_agents(self, speed_vec):
+        H = (speed_vec - self.speed_lim_mat[:,0])*(self.speed_lim_mat[:,1]-speed_vec)
+        gradH = np.diag(self.speed_lim_mat.sum(axis=1) - 2 * speed_vec)
+        return H, gradH
 
     # def get_active_waypoints(self, sched_mat):
     #     H, _ = self.CBF(sched_mat, range(self.n_waypoints), returnGrad=False)
@@ -281,24 +308,31 @@ class MARS():
     #     return active_waypoints
 
 
-    def get_CBF_control(self, sched_mat, beta, gamma, alpha, p):
+    def get_CBF_control(self, sched_mat, speed_vec, beta, gamma, alpha, p):
 
         Nw = self.n_waypoints
         Na = self.n_agents
         # control decision variables
-        U = cp.Variable((Na,Nw))
+        U1 = cp.Variable((Na,Nw))
+        U2 = cp.Variable((Na,))
         delta = cp.Variable(1)
         # delta1 = cp.Variable(1)
 
         # get free energy and its dot
-        self.transportCost_v1(sched_mat, beta)
+        self.transportCost_v1(sched_mat, speed_vec, beta)
         F = np.sum(self.agent_weights * self.C_agents)
-        Grad_F = self.grad_transportCost_v1(sched_mat, beta)
+        Grad_F = self.grad_transportCost_v1(sched_mat, speed_vec, beta)
         # print(f'inside CBF_control:\nGrad_F:{Grad_F}')
-        F_dot = cp.sum(cp.multiply(self.agent_weights, cp.sum(cp.multiply(Grad_F, U), axis=1))) # Na x Nw
+        F_dot1 = cp.sum(cp.multiply(self.agent_weights, cp.sum(cp.multiply(Grad_F[:,:-1], U1), axis=1))) # Na x Nw
+        F_dot2 = cp.sum(cp.multiply(Grad_F[:,-1], U2))
+        F_dot = F_dot1 + F_dot2
+
+        # speed speed cbf and its dot
+        H_speed, Grad_H_speed = self.CBF_agents(speed_vec)
+        H_speed_dot = cp.sum(cp.multiply(Grad_H_speed, U2), axis=1)
 
         # define objective, constraints and problem
-        objective = cp.Minimize(cp.sum_squares(U) + p*delta**2)
+        objective = cp.Minimize(cp.sum_squares(U1) + cp.sum_squares(U2) + p*delta**2)
         
         # pick agent start schedules and its dot
         start_indices = np.array([[i, a.s] for i, a in enumerate(self.agents)])
@@ -308,22 +342,24 @@ class MARS():
         if self.active_waypoints == [] or self.active_waypoints == None:
             constraints = [
                 F_dot <= -gamma * F + delta, # to decrease free energy
-                U[tup_start_indices] >= -alpha * (sched_mat[tup_start_indices]) # to maintain time-positivity
+                H_speed_dot >= -alpha * H_speed, # speed limit constraint
+                U1[tup_start_indices] >= -alpha * (sched_mat[tup_start_indices]) # to maintain time-positivity
             ]
         else:
             # get collision avoidance CBF and its dot
-            H, Grad_H = self.CBF(sched_mat, self.active_waypoints, returnGrad=True)
+            H, Grad_H = self.CBF_waypoints(sched_mat, self.active_waypoints, returnGrad=True)
             H_dot_list = []
             for i, wp in enumerate(self.active_waypoints):
                 H_dot_list.append(
-                    cp.sum(cp.multiply(Grad_H[i], cp.reshape(U[:,wp], (1,Na), order='C')), axis=1, keepdims=True)
+                    cp.sum(cp.multiply(Grad_H[i], cp.reshape(U1[:,wp], (1,Na), order='C')), axis=1, keepdims=True)
                 )
             H_dot = cp.hstack(H_dot_list) # Na(Na+1)/2 x Nw
 
             constraints = [
-                F_dot <= -gamma * F + delta,
-                H_dot >= -alpha * H,
-                U[tup_start_indices] >= -alpha * (sched_mat[tup_start_indices])
+                F_dot <= -gamma * F + delta, # decrease free energy
+                H_speed_dot >= -alpha * H_speed, # speed limit constraint
+                H_dot >= -alpha * H, # collision avoidance constraint
+                U1[tup_start_indices] >= -alpha * (sched_mat[tup_start_indices]) # to maintain time-positivity
             ]
 
         problem = cp.Problem(objective, constraints)
@@ -346,11 +382,11 @@ class MARS():
         if np.isnan(problem.value).any() == True:
             print("Nan encountered!")
             return np.zeros((Na,Nw)), 0.0, 0.0, 0.0
-        elif U.value is None or F_dot.value is None:
+        elif U1.value is None or U2.value is None or F_dot.value is None:
             print("None type returned")
             return np.zeros((Na,Nw)), 0.0, 0.0, 0.0
         else:
-            return U.value, F, F_dot.value, delta.value
+            return U1.value, U2.value, F, F_dot.value, delta.value
 
 
     # function to perform optimization iterations at a given beta
@@ -380,6 +416,7 @@ class MARS():
         self,
         beta, 
         Tb, 
+        Vb,
         dt_init, 
         dt_min, 
         dt_max, 
@@ -393,6 +430,7 @@ class MARS():
         ):
     
         T_prev = Tb
+        V_prev = Vb
         dt_prev = dt_init
         theta_prev = np.Inf
         t = 0.0
@@ -400,19 +438,20 @@ class MARS():
         F_prev = 1.0
         while t < Tf:
             # get control
-            U, F, Fdot, delta = self.get_CBF_control(T_prev, beta, gamma, alpha, p)
+            U1, U2, F, Fdot, delta = self.get_CBF_control(T_prev, V_prev, beta, gamma, alpha, p)
 
             # compute new stepsize
             if iter_count > 0:
                 step_size_1 = np.sqrt(1 + theta_prev) * dt_prev
-                grad_diff = np.linalg.norm(U - U_old) + 1e-6  # Regularization term to prevent division by zero
-                step_size_2 = np.linalg.norm(T_prev - T_old) / (2 * grad_diff)  
+                grad_diff = np.linalg.norm(U1 - U1_old) + np.linalg.norm(U2-U2_old) + 1e-6  # Regularization term to prevent division by zero
+                step_size_2 = (np.linalg.norm(T_prev - T_old) + np.linalg.norm(V_prev - V_old)) / (2 * grad_diff)  
                 dt = min(max(step_size_2, dt_min), dt_max)  # Keep dt in range [dt_min, dt_max]
             else:
                 dt = dt_init
 
             # Euler update
-            T_next = T_prev + dt * U
+            T_next = T_prev + dt * U1
+            V_next = V_prev + dt * U2
 
             # compute new theta_k
             if iter_count > 0:
@@ -421,6 +460,7 @@ class MARS():
                 theta = 1.0
 
             tol_T = np.max(np.abs(T_next-T_prev)) #/np.max(np.abs(T_next))
+            tol_V = np.max(np.abs(V_next-V_prev))
             tol_F = np.abs(F - F_prev)
             tol_Fdot = abs(Fdot * dt)
             tol = np.sum(stop_tol_weight * np.array([tol_T, tol_F, tol_Fdot]))
@@ -435,15 +475,18 @@ class MARS():
 
             # Update variables for next iteration
             T_old = T_prev
-            U_old = U
+            V_old = V_prev
+            T_prev = T_next
+            V_prev = V_next
+            U1_old = U1
+            U2_old = U2
             dt_prev = dt
             theta_prev = theta
-            T_prev = T_next
             t += dt
             iter_count += 1
             F_prev = F
 
-        return T_prev, U, F, Fdot, tol, delta[0]
+        return T_prev, V_prev, U1, U2, F, Fdot, tol, delta[0]
 
 
     # function to perform annealing
@@ -593,12 +636,14 @@ class MARS():
         self,
         beta_arr,
         T0,
+        V0,
         active_waypoints,
         optimizer,
         annealPrint=False,
         ):
 
         Tb = T0
+        Vb = V0
 
         if optimizer['name'] == 'cbf_clf':
             dt_init         = optimizer['dt_init']
@@ -626,8 +671,8 @@ class MARS():
             self.tolArray = 5.0 * np.ones(self.n_waypoints) * b/(b+1)
     
             if optimizer['name'] == 'cbf_clf':
-                Tb, Ub, Fb, Fdot_b, tolb, delta_b = self.CBF_CLF_at_beta(
-                    b, Tb, dt_init, dt_min, dt_max, 
+                Tb, Vb, U1b, U2b, Fb, Fdot_b, tolb, delta_b = self.CBF_CLF_at_beta(
+                    b, Tb, Vb, dt_init, dt_min, dt_max, 
                     Tf, gamma, alpha, p, 
                     stop_tol=stop_tol, 
                     stop_tol_weight=stop_tol_weight/np.sum(stop_tol_weight), 
@@ -640,10 +685,10 @@ class MARS():
         # compute final probability associations
         Pb_a = []
         for i,a in enumerate(self.agents):
-            Pb = a.getPathAssociations_v1(Tb[i,:], self.dist_mat, beta_arr[-1])
+            Pb = a.getPathAssociations_v1(Tb[i,:], Vb[i], self.dist_mat, beta_arr[-1])
             Pb_a.append(Pb)
 
-        return Tb, Fb, Pb_a
+        return Tb, Vb, Fb, Pb_a
 
 def calc_agent_routes_and_schedules(mars:MARS, Pb_a:list, printRoutes=False):
     routes = []

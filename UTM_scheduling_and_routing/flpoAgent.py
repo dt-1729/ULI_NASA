@@ -23,6 +23,7 @@ class flpoAgent():
         n_wp:int, 
         sd:list, 
         sched:np.ndarray, 
+        speed:float,
         speedLim:np.ndarray, 
         process_T:np.ndarray, 
         INF:float,
@@ -35,6 +36,7 @@ class flpoAgent():
         self.s = sd[0] # starting waypoint index
         self.d = sd[1] # destination waypoint index
         self.sched = sched # schedule at all the waypoints
+        self.speed = speed # speed of the agent
         self.stageHorizon = self.n_wp+1 # number of FLPO stages
         self.speedLim = speedLim # minimum and maximum speeds allowed
         self.mean_speed = np.mean(self.speedLim)
@@ -109,7 +111,7 @@ class flpoAgent():
         return Xi_flip[::-1]
 
 
-    def returnStageWiseCost_v1(self, sched, distMat):
+    def returnStageWiseCost_v1(self, sched, speed, distMat):
         K = self.stageHorizon
         Xi_flip = [0]*K
         dt_w2w = np.tile(sched, (self.n_wp, 1)) - np.tile(sched.reshape(-1,1), (1, self.n_wp))
@@ -118,40 +120,47 @@ class flpoAgent():
 
         for i in range(K):
             if i == 0: # penultimate stage to destination
-                Xi_flip[i] = (dt_w2d - distMat[:,self.d].reshape(-1,1)/self.mean_speed)**2 + (distMat[:,self.d].reshape(-1,1)/self.mean_speed)**2
+                Xi_flip[i] = (dt_w2d - distMat[:,self.d].reshape(-1,1)/speed)**2 + (distMat[:,self.d].reshape(-1,1)/speed)**2
                 Xi_flip[i][self.net_mask[:,self.d].reshape(-1,1)==0] = self.INF
                 Xi_flip[i][self.d,:] = 0
             elif i>0 and i<K-1: # internal stages
-                Xi_flip[i] = (dt_w2w - distMat/self.mean_speed)**2 + (distMat/self.mean_speed)**2
+                Xi_flip[i] = (dt_w2w - distMat/speed)**2 + (distMat/speed)**2
                 Xi_flip[i][self.net_mask == 0] = self.INF
                 Xi_flip[i][self.d, self.d] = 0.0
             elif i == K-1: # starting stage to 1st stage
                 Xi_flip[i] = np.expand_dims(
-                    sched[self.s]**2 + (dt_n2w - distMat[self.s,:]/self.mean_speed)**2 + (distMat[self.s,:]/self.mean_speed)**2, axis=0)
+                    sched[self.s]**2 + (dt_n2w - distMat[self.s,:]/speed)**2 + (distMat[self.s,:]/speed)**2, axis=0)
                 Xi_flip[i][self.net_mask[self.s,None] == 0] = self.INF
         return Xi_flip[::-1]
 
 
-    def returnStagewiseGrad_v1(self, sched, distMat):
-        N = self.n_wp
-        G_w2w = np.zeros((N,N,N))
+    def returnStagewiseGrad_v1(self, sched, speed, distMat):
+        Nw = self.n_wp
+        N = len(sched) + 1
+        G_w2w = np.zeros((N,Nw,Nw))
         K = self.stageHorizon
         G_flip = [0]*K
         mask = self.net_mask
 
         # compute gradient for w2w transitions
-        for k in range(N):
-            G_w2w[k,k,:] = 2*(sched[k] - sched + distMat[k,:]/self.mean_speed) 
-            G_w2w[k,:,k] = 2*(sched[k] - sched - distMat[:,k]/self.mean_speed)
+        for k in range(N-1):
+            G_w2w[k,k,:] = 2*(sched[k] - sched + distMat[k,:]/speed) 
+            G_w2w[k,:,k] = 2*(sched[k] - sched - distMat[:,k]/speed)
+        
+        # print(sched - sched.reshape(-1,1))
+        # print(2*distMat/speed)
+        # print(sched - sched.reshape(-1,1) - 2*distMat/speed)
+        # print(2*(sched - sched.reshape(-1,1) - 2*distMat/speed) * distMat/speed**2)
+        G_w2w[N-1] = 2*(sched - sched.reshape(-1,1) - 2*distMat/speed) * distMat/speed**2
 
         for i in range(K):
             if i == 0: # penultimate stage to destination
-                G_flip[i] = G_w2w[:,:,self.d].reshape(-1,N,1)* mask[:,self.d].reshape(-1,1)
+                G_flip[i] = G_w2w[:,:,self.d].reshape(-1,Nw,1)* mask[:,self.d].reshape(-1,1)
                 G_flip[i][:,self.d,:] = 0
             elif i == K-1: # start to first stage
-                G_start = (G_w2w[:,self.s,:]).reshape(-1,1,N)*mask[self.s,:]
+                G_start = (G_w2w[:,self.s,:]).reshape(-1,1,Nw)*mask[self.s,:]
                 G_off = np.zeros(G_start.shape)
-                G_off[self.s, :, :] = np.ones(N)*2*sched[self.s]*mask[self.s,:]
+                G_off[self.s, :, :] = np.ones(Nw)*2*sched[self.s]*mask[self.s,:]
                 G_flip[i] = G_start + G_off
             else:
                 G_flip[i] = G_w2w * mask
@@ -174,9 +183,6 @@ class flpoAgent():
                 Value_flip[i] = Xi_flip[i]
                 minLambda = Lambda_flip[i].min(axis=1,keepdims=True)
                 exp_beta = np.exp(-beta*(Lambda_flip[i] - minLambda))
-                # print(f'i:{i}\tXi:{Xi_flip[i]}')
-                # print(f'i:{i}\tLambda:{Lambda_flip[i]}')
-                # print(f'i:{i}\tValue:{Value_flip[i]}')
             else:
                 Lambda_flip[i] = Xi_flip[i] + np.tile(np.transpose(Value_flip[i-1]), (Xi_flip[i].shape[0],1))
                 m = n_paths_flip[i]
@@ -184,11 +190,6 @@ class flpoAgent():
                 exp_beta = np.exp(-beta*(Lambda_flip[i] - minLambda))
                 log_exp_beta = np.log(exp_beta.sum(axis=1,keepdims=True))
                 Value_flip[i] = -1/beta*log_exp_beta + minLambda + self.offset_energy*1/beta*np.log(m)
-                # print(f'i:{i}\tXi:{Xi_flip[i]}')
-                # print(f'i:{i}\tLambda:{Lambda_flip[i]}\n\tminLambda:{minLambda}')
-                # print(f'i:{i}\texp_beta:{exp_beta}')
-                # print(f'i:{i}\tlog_exp_beta:{log_exp_beta}')
-                # print(f'i:{i}\tValue:{Value_flip[i]}')
             if returnPb:
                 p_flip[i] = exp_beta/exp_beta.sum(axis=1, keepdims=True)
         tf = time.time()
@@ -207,14 +208,14 @@ class flpoAgent():
         _, _, _, _, Pb = self.backPropDP(Xi_s=Xi, beta=beta, returnPb=True)
         return Pb
 
-    def getFreeEnergy_s_v1(self, sched, distMat, beta):
-        Xi = self.returnStageWiseCost_v1(sched, distMat)
-        _, _, freeEnergy_s, _, _ = self.backPropDP(Xi, beta, returnPb=False)
+    def getFreeEnergy_s_v1(self, sched, speed, distMat, beta):
+        Xi = self.returnStageWiseCost_v1(sched=sched, speed=speed, distMat=distMat)
+        _, _, freeEnergy_s, _, _ = self.backPropDP(Xi_s=Xi, beta=beta, returnPb=False)
         self.freeEnergy_s = freeEnergy_s
         return freeEnergy_s
 
-    def getPathAssociations_v1(self, sched, dist_mat, beta):
-        Xi = self.returnStageWiseCost_v1(sched=sched, distMat=dist_mat)
+    def getPathAssociations_v1(self, sched, speed, dist_mat, beta):
+        Xi = self.returnStageWiseCost_v1(sched=sched, speed=speed, distMat=dist_mat)
         _, _, _, _, Pb = self.backPropDP(Xi_s=Xi, beta=beta, returnPb=True)
         return Pb
 
