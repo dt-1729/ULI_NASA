@@ -316,15 +316,21 @@ class MARS():
         U1 = cp.Variable((Na,Nw))
         U2 = cp.Variable((Na,))
         delta = cp.Variable(1)
-        # delta1 = cp.Variable(1)
+
+        alpha_speed = 0.1 * alpha
 
         # get free energy and its dot
         self.transportCost_v1(sched_mat, speed_vec, beta)
         F = np.sum(self.agent_weights * self.C_agents)
         Grad_F = self.grad_transportCost_v1(sched_mat, speed_vec, beta)
+        # print(F)
+        # print(Grad_F)
+        # print(Grad_F[:,:-1])
+        # print(Grad_F[:,-1])
         # print(f'inside CBF_control:\nGrad_F:{Grad_F}')
         F_dot1 = cp.sum(cp.multiply(self.agent_weights, cp.sum(cp.multiply(Grad_F[:,:-1], U1), axis=1))) # Na x Nw
         F_dot2 = cp.sum(cp.multiply(Grad_F[:,-1], U2))
+        # print(F_dot2)
         F_dot = F_dot1 + F_dot2
 
         # speed speed cbf and its dot
@@ -342,7 +348,7 @@ class MARS():
         if self.active_waypoints == [] or self.active_waypoints == None:
             constraints = [
                 F_dot <= -gamma * F + delta, # to decrease free energy
-                H_speed_dot >= -alpha * H_speed, # speed limit constraint
+                H_speed_dot >= -alpha_speed * H_speed, # speed limit constraint
                 U1[tup_start_indices] >= -alpha * (sched_mat[tup_start_indices]) # to maintain time-positivity
             ]
         else:
@@ -357,7 +363,7 @@ class MARS():
 
             constraints = [
                 F_dot <= -gamma * F + delta, # decrease free energy
-                H_speed_dot >= -alpha * H_speed, # speed limit constraint
+                H_speed_dot >= -alpha_speed * H_speed, # speed limit constraint
                 H_dot >= -alpha * H, # collision avoidance constraint
                 U1[tup_start_indices] >= -alpha * (sched_mat[tup_start_indices]) # to maintain time-positivity
             ]
@@ -378,6 +384,7 @@ class MARS():
         result = problem.solve(solver = 'OSQP', **solver_options)
         # if self.active_waypoints != [] and self.active_waypoints != None:
             # print(H, H_dot.value)
+        # print(f'H_speed_dot: {H_speed_dot.value + alpha_speed * H_speed}')
         # Check the results
         if np.isnan(problem.value).any() == True:
             print("Nan encountered!")
@@ -443,8 +450,8 @@ class MARS():
             # compute new stepsize
             if iter_count > 0:
                 step_size_1 = np.sqrt(1 + theta_prev) * dt_prev
-                grad_diff = np.linalg.norm(U1 - U1_old) + np.linalg.norm(U2-U2_old) + 1e-6  # Regularization term to prevent division by zero
-                step_size_2 = (np.linalg.norm(T_prev - T_old) + np.linalg.norm(V_prev - V_old)) / (2 * grad_diff)  
+                grad_diff = np.linalg.norm(U1 - U1_old) + 0*np.linalg.norm(U2-U2_old) + 1e-6  # Regularization term to prevent division by zero
+                step_size_2 = (np.linalg.norm(T_prev - T_old) + 0*np.linalg.norm(V_prev - V_old)) / (2 * grad_diff)  
                 dt = min(max(step_size_2, dt_min), dt_max)  # Keep dt in range [dt_min, dt_max]
             else:
                 dt = dt_init
@@ -467,10 +474,12 @@ class MARS():
             if tol < stop_tol:
                 if verbose == 1 or verbose == 2:
                     print(f'\tt:{t:.3e}\tFdot:{Fdot:.4f}\tF:{F:.4f}\tdt:{dt:.4e}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}')
+                    print(f'speed: {V_prev}')
                     # print(f'\nH:\n{Hdot+alpha * H}')
                 break
             if verbose == 2:
                 print(f'\tt:{t:.3e}\tFdot:{Fdot:.4f}\tF:{F:.4f}\tdt:{dt:.4e}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}')
+                print(f'speed: {V_prev}')
                 # print(f'\nH:\n{Hdot+alpha * H}')
 
             # Update variables for next iteration
@@ -487,6 +496,65 @@ class MARS():
             F_prev = F
 
         return T_prev, V_prev, U1, U2, F, Fdot, tol, delta[0]
+
+
+    def anneal(
+        self,
+        beta_arr,
+        T0,
+        V0,
+        active_waypoints,
+        optimizer,
+        annealPrint=False,
+        ):
+
+        Tb = T0
+        Vb = V0
+
+        if optimizer['name'] == 'cbf_clf':
+            dt_init         = optimizer['dt_init']
+            dt_min          = optimizer['dt_min']
+            dt_max          = optimizer['dt_max']
+            Tf              = optimizer['Tf']
+            gamma           = optimizer['gamma']
+            alpha           = optimizer['alpha']
+            p               = optimizer['p']
+            stop_tol        = optimizer['stop_tol']
+            stop_tol_weight = optimizer['stop_tol_weight']
+            verbose         = optimizer['verbose']
+
+        for b in beta_arr:
+            if active_waypoints is None:
+                reach_mat = self.calc_agent_reach_mat_v1(Tb, b)
+                filter_wp = np.ones(reach_mat.shape)
+                filter_wp[reach_mat <= 1e-10] = 0.0
+                self.active_waypoints = list(np.where(np.sum(filter_wp, axis=0)>=2)[0])
+                # print(self.active_waypoints)
+                # self.active_waypoints = self.get_active_waypoints(Tb)
+            else:
+                self.active_waypoints = active_waypoints
+
+            self.tolArray = 5.0 * np.ones(self.n_waypoints) * b/(b+1)
+    
+            if optimizer['name'] == 'cbf_clf':
+                Tb, Vb, U1b, U2b, Fb, Fdot_b, tolb, delta_b = self.CBF_CLF_at_beta(
+                    b, Tb, Vb, dt_init, dt_min, dt_max, 
+                    Tf, gamma, alpha, p, 
+                    stop_tol=stop_tol, 
+                    stop_tol_weight=stop_tol_weight/np.sum(stop_tol_weight), 
+                    verbose=verbose)
+            total_cost = np.sum(self.agent_weights * self.C_agents)
+
+            if annealPrint:
+                print(f'\nbeta: {b:.4e}\tcost: {total_cost:.3f}\tdot_cost: {Fdot_b:.3f}\ttolb: {tolb:.3e}\tdelta_b: {delta_b:.3f}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}')
+
+        # compute final probability associations
+        Pb_a = []
+        for i,a in enumerate(self.agents):
+            Pb = a.getPathAssociations_v1(Tb[i,:], Vb[i], self.dist_mat, beta_arr[-1])
+            Pb_a.append(Pb)
+
+        return Tb, Vb, Fb, Pb_a
 
 
     # function to perform annealing
@@ -632,63 +700,6 @@ class MARS():
 
         return C_arr, sched_vec, rt_arr, reach_mat_beta_data, filter_wp_beta_data, beta_arr, gamma_arr, conflict_C_arr, Pb_a
 
-    def anneal(
-        self,
-        beta_arr,
-        T0,
-        V0,
-        active_waypoints,
-        optimizer,
-        annealPrint=False,
-        ):
-
-        Tb = T0
-        Vb = V0
-
-        if optimizer['name'] == 'cbf_clf':
-            dt_init         = optimizer['dt_init']
-            dt_min          = optimizer['dt_min']
-            dt_max          = optimizer['dt_max']
-            Tf              = optimizer['Tf']
-            gamma           = optimizer['gamma']
-            alpha           = optimizer['alpha']
-            p               = optimizer['p']
-            stop_tol        = optimizer['stop_tol']
-            stop_tol_weight = optimizer['stop_tol_weight']
-            verbose         = optimizer['verbose']
-
-        for b in beta_arr:
-            if active_waypoints is None:
-                reach_mat = self.calc_agent_reach_mat_v1(Tb, b)
-                filter_wp = np.ones(reach_mat.shape)
-                filter_wp[reach_mat <= 1e-10] = 0.0
-                self.active_waypoints = list(np.where(np.sum(filter_wp, axis=0)>=2)[0])
-                # print(self.active_waypoints)
-                # self.active_waypoints = self.get_active_waypoints(Tb)
-            else:
-                self.active_waypoints = active_waypoints
-
-            self.tolArray = 5.0 * np.ones(self.n_waypoints) * b/(b+1)
-    
-            if optimizer['name'] == 'cbf_clf':
-                Tb, Vb, U1b, U2b, Fb, Fdot_b, tolb, delta_b = self.CBF_CLF_at_beta(
-                    b, Tb, Vb, dt_init, dt_min, dt_max, 
-                    Tf, gamma, alpha, p, 
-                    stop_tol=stop_tol, 
-                    stop_tol_weight=stop_tol_weight/np.sum(stop_tol_weight), 
-                    verbose=verbose)
-            total_cost = np.sum(self.agent_weights * self.C_agents)
-
-            if annealPrint:
-                print(f'\nbeta: {b:.4e}\tcost: {total_cost:.3f}\tdot_cost: {Fdot_b:.3f}\ttolb: {tolb:.3e}\tdelta_b: {delta_b:.3f}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}')
-
-        # compute final probability associations
-        Pb_a = []
-        for i,a in enumerate(self.agents):
-            Pb = a.getPathAssociations_v1(Tb[i,:], Vb[i], self.dist_mat, beta_arr[-1])
-            Pb_a.append(Pb)
-
-        return Tb, Vb, Fb, Pb_a
 
 def calc_agent_routes_and_schedules(mars:MARS, Pb_a:list, printRoutes=False):
     routes = []
