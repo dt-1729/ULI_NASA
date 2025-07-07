@@ -66,7 +66,7 @@ class MARS():
         self.agent_weights = agent_weights/np.sum(agent_weights)
         self.sd_mat = np.random.choice(range(nw), (na,2))
         min_speeds = np.random.uniform(0.01,1.0,na).reshape(-1,1)
-        max_speeds = np.random.uniform(60,75,na).reshape(-1,1)
+        max_speeds = np.random.uniform(70,80,na).reshape(-1,1)
         self.speed_lim_mat = np.concatenate((min_speeds,max_speeds), axis=1)
         self.speed_vec = self.speed_lim_mat.mean(axis=1)
         self.t_start_min = 0.0
@@ -317,19 +317,14 @@ class MARS():
         U2 = cp.Variable((Na,))
         delta = cp.Variable(1)
 
-        alpha_speed = 0.1 * alpha
+        alpha_speed = alpha
 
         # get free energy and its dot
         self.transportCost_v1(sched_mat, speed_vec, beta)
         F = np.sum(self.agent_weights * self.C_agents)
         Grad_F = self.grad_transportCost_v1(sched_mat, speed_vec, beta)
-        # print(F)
-        # print(Grad_F)
-        # print(Grad_F[:,:-1])
-        # print(Grad_F[:,-1])
-        # print(f'inside CBF_control:\nGrad_F:{Grad_F}')
         F_dot1 = cp.sum(cp.multiply(self.agent_weights, cp.sum(cp.multiply(Grad_F[:,:-1], U1), axis=1))) # Na x Nw
-        F_dot2 = cp.sum(cp.multiply(Grad_F[:,-1], U2))
+        F_dot2 = cp.sum(cp.multiply(self.agent_weights, cp.multiply(Grad_F[:,-1], U2)))
         # print(F_dot2)
         F_dot = F_dot1 + F_dot2
 
@@ -346,6 +341,7 @@ class MARS():
 
         # bypass CBF constraint if no waypoint is active
         if self.active_waypoints == [] or self.active_waypoints == None:
+            print(f'hereeeeeeeehjejdhjfhdjhf')
             constraints = [
                 F_dot <= -gamma * F + delta, # to decrease free energy
                 H_speed_dot >= -alpha_speed * H_speed, # speed limit constraint
@@ -382,16 +378,22 @@ class MARS():
 
         # Solve the problem using OSQP with customized options
         result = problem.solve(solver = 'OSQP', **solver_options)
-        # if self.active_waypoints != [] and self.active_waypoints != None:
-            # print(H, H_dot.value)
-        # print(f'H_speed_dot: {H_speed_dot.value + alpha_speed * H_speed}')
+
+        print(f'speed_vec:{speed_vec}')
+        print(f'speed_lim:{self.speed_lim_mat}')
+        print(f'H_speed:{H_speed}')
+        print(f'H_grad:{Grad_H_speed}')
+        print(f'U2:{U2.value}')
+        print(f'H_speed_dot:{H_speed_dot.value}')
+        print(f'H_constraint: {H_speed_dot.value + alpha_speed * H_speed}\n')
+
         # Check the results
         if np.isnan(problem.value).any() == True:
             print("Nan encountered!")
-            return np.zeros((Na,Nw)), 0.0, 0.0, 0.0
+            return np.zeros((Na,Nw)), np.zeros((Na,)), 0.0, 0.0, 0.0
         elif U1.value is None or U2.value is None or F_dot.value is None:
             print("None type returned")
-            return np.zeros((Na,Nw)), 0.0, 0.0, 0.0
+            return np.zeros((Na,Nw)), np.zeros((Na,)), 0.0, 0.0, 0.0
         else:
             return U1.value, U2.value, F, F_dot.value, delta.value
 
@@ -406,6 +408,7 @@ class MARS():
         cost_fun = res.fun
         computeTime = time.time() - t0
         return res.fun, res.x, computeTime
+
 
     # function to perform optimization iterations at a given beta
     def optimize_schedule_trust_constr_v1(self, init_sched_vec0, beta, gamma_c, coeff_c, filter_wp, bds, opts, allowPrintOptimize=False):
@@ -450,8 +453,8 @@ class MARS():
             # compute new stepsize
             if iter_count > 0:
                 step_size_1 = np.sqrt(1 + theta_prev) * dt_prev
-                grad_diff = np.linalg.norm(U1 - U1_old) + 0*np.linalg.norm(U2-U2_old) + 1e-6  # Regularization term to prevent division by zero
-                step_size_2 = (np.linalg.norm(T_prev - T_old) + 0*np.linalg.norm(V_prev - V_old)) / (2 * grad_diff)  
+                grad_diff = np.linalg.norm(U1 - U1_old) + np.linalg.norm(U2 - U2_old) + 1e-6  # Regularization term to prevent division by zero
+                step_size_2 = (np.linalg.norm(T_prev - T_old) + np.linalg.norm(V_prev - V_old)) / (2 * grad_diff)  
                 dt = min(max(step_size_2, dt_min), dt_max)  # Keep dt in range [dt_min, dt_max]
             else:
                 dt = dt_init
@@ -459,6 +462,8 @@ class MARS():
             # Euler update
             T_next = T_prev + dt * U1
             V_next = V_prev + dt * U2
+
+            # ToDo: add a code to prevent T_next and V_next from going outside the safe set
 
             # compute new theta_k
             if iter_count > 0:
@@ -473,14 +478,10 @@ class MARS():
             tol = np.sum(stop_tol_weight * np.array([tol_T, tol_F, tol_Fdot]))
             if tol < stop_tol:
                 if verbose == 1 or verbose == 2:
-                    print(f'\tt:{t:.3e}\tFdot:{Fdot:.4f}\tF:{F:.4f}\tdt:{dt:.4e}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}')
-                    print(f'speed: {V_prev}')
-                    # print(f'\nH:\n{Hdot+alpha * H}')
+                    print(f'\tt:{t:.3e}\tFdot:{Fdot:.4f}\tF:{F:.4f}\tdt:{dt:.4e}\tspeed: {V_prev}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}')
                 break
             if verbose == 2:
-                print(f'\tt:{t:.3e}\tFdot:{Fdot:.4f}\tF:{F:.4f}\tdt:{dt:.4e}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}')
-                print(f'speed: {V_prev}')
-                # print(f'\nH:\n{Hdot+alpha * H}')
+                print(f'\tt:{t:.3e}\tFdot:{Fdot:.4f}\tF:{F:.4f}\tdt:{dt:.4e}\tspeed: {V_prev}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}')
 
             # Update variables for next iteration
             T_old = T_prev
@@ -529,8 +530,6 @@ class MARS():
                 filter_wp = np.ones(reach_mat.shape)
                 filter_wp[reach_mat <= 1e-10] = 0.0
                 self.active_waypoints = list(np.where(np.sum(filter_wp, axis=0)>=2)[0])
-                # print(self.active_waypoints)
-                # self.active_waypoints = self.get_active_waypoints(Tb)
             else:
                 self.active_waypoints = active_waypoints
 
