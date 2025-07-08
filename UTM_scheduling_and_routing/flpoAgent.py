@@ -136,22 +136,19 @@ class flpoAgent():
 
     def returnStagewiseGrad_v1(self, sched, speed, distMat):
         Nw = self.n_wp
-        N = len(sched) + 1
-        G_w2w = np.zeros((N,Nw,Nw))
+        N_params = len(sched) + 1
+        G_w2w = np.zeros((N_params,Nw,Nw))
         K = self.stageHorizon
         G_flip = [0]*K
         mask = self.net_mask
 
-        # compute gradient for w2w transitions
-        for k in range(N-1):
+        # compute gradient for w2w transitions w.r.t. schedules
+        for k in range(N_params-1):
             G_w2w[k,k,:] = 2*(sched[k] - sched + distMat[k,:]/speed) 
             G_w2w[k,:,k] = 2*(sched[k] - sched - distMat[:,k]/speed)
         
-        # print(sched - sched.reshape(-1,1))
-        # print(2*distMat/speed)
-        # print(sched - sched.reshape(-1,1) - 2*distMat/speed)
-        # print(2*(sched - sched.reshape(-1,1) - 2*distMat/speed) * distMat/speed**2)
-        G_w2w[N-1] = 2*(sched - sched.reshape(-1,1) - 2*distMat/speed) * distMat/speed**2
+        # compute gradient for w2w transitions w.r.t. speed
+        G_w2w[N_params-1] = 2*distMat/speed**2 * (sched - sched.reshape(-1,1) - 2*distMat/speed) 
 
         for i in range(K):
             if i == 0: # penultimate stage to destination

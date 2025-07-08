@@ -164,8 +164,7 @@ class MARS():
         C_arr = np.zeros(self.n_agents)
         for i in range(self.n_agents):
             v = self.agents[i]
-            v.getFreeEnergy_s_v1(sched_mat[i,:], speed_vec[i], self.dist_mat, beta)
-            C_arr[i] = v.freeEnergy_s
+            C_arr[i] = v.getFreeEnergy_s_v1(sched_mat[i,:], speed_vec[i], self.dist_mat, beta)
         self.C_agents = C_arr
         
         if allowPrint:
@@ -313,8 +312,7 @@ class MARS():
         Nw = self.n_waypoints
         Na = self.n_agents
         # control decision variables
-        U1 = cp.Variable((Na,Nw))
-        U2 = cp.Variable((Na,))
+        U = cp.Variable((Na, Nw+1))
         delta = cp.Variable(1)
 
         alpha_speed = alpha
@@ -323,17 +321,15 @@ class MARS():
         self.transportCost_v1(sched_mat, speed_vec, beta)
         F = np.sum(self.agent_weights * self.C_agents)
         Grad_F = self.grad_transportCost_v1(sched_mat, speed_vec, beta)
-        F_dot1 = cp.sum(cp.multiply(self.agent_weights, cp.sum(cp.multiply(Grad_F[:,:-1], U1), axis=1))) # Na x Nw
-        F_dot2 = cp.sum(cp.multiply(self.agent_weights, cp.multiply(Grad_F[:,-1], U2)))
-        # print(F_dot2)
-        F_dot = F_dot1 + F_dot2
+        F_dot = cp.sum(cp.multiply(self.agent_weights, cp.sum(cp.multiply(Grad_F, U), axis=1)))
 
         # speed speed cbf and its dot
         H_speed, Grad_H_speed = self.CBF_agents(speed_vec)
-        H_speed_dot = cp.sum(cp.multiply(Grad_H_speed, U2), axis=1)
+        Grad_H_diag = Grad_H_speed.diagonal().copy()
+        H_speed_dot = cp.multiply(Grad_H_diag, U[:,-1])
 
         # define objective, constraints and problem
-        objective = cp.Minimize(cp.sum_squares(U1) + cp.sum_squares(U2) + p*delta**2)
+        objective = cp.Minimize(cp.sum_squares(U) + p*delta**2)
         
         # pick agent start schedules and its dot
         start_indices = np.array([[i, a.s] for i, a in enumerate(self.agents)])
@@ -341,11 +337,10 @@ class MARS():
 
         # bypass CBF constraint if no waypoint is active
         if self.active_waypoints == [] or self.active_waypoints == None:
-            print(f'hereeeeeeeehjejdhjfhdjhf')
             constraints = [
                 F_dot <= -gamma * F + delta, # to decrease free energy
                 H_speed_dot >= -alpha_speed * H_speed, # speed limit constraint
-                U1[tup_start_indices] >= -alpha * (sched_mat[tup_start_indices]) # to maintain time-positivity
+                U[tup_start_indices] >= -alpha * (sched_mat[tup_start_indices]) # to maintain time-positivity
             ]
         else:
             # get collision avoidance CBF and its dot
@@ -353,7 +348,7 @@ class MARS():
             H_dot_list = []
             for i, wp in enumerate(self.active_waypoints):
                 H_dot_list.append(
-                    cp.sum(cp.multiply(Grad_H[i], cp.reshape(U1[:,wp], (1,Na), order='C')), axis=1, keepdims=True)
+                    cp.sum(cp.multiply(Grad_H[i], cp.reshape(U[:,wp], (1,Na), order='C')), axis=1, keepdims=True)
                 )
             H_dot = cp.hstack(H_dot_list) # Na(Na+1)/2 x Nw
 
@@ -361,7 +356,7 @@ class MARS():
                 F_dot <= -gamma * F + delta, # decrease free energy
                 H_speed_dot >= -alpha_speed * H_speed, # speed limit constraint
                 H_dot >= -alpha * H, # collision avoidance constraint
-                U1[tup_start_indices] >= -alpha * (sched_mat[tup_start_indices]) # to maintain time-positivity
+                U[tup_start_indices] >= -alpha * (sched_mat[tup_start_indices]) # to maintain time-positivity
             ]
 
         problem = cp.Problem(objective, constraints)
@@ -379,23 +374,25 @@ class MARS():
         # Solve the problem using OSQP with customized options
         result = problem.solve(solver = 'OSQP', **solver_options)
 
-        print(f'speed_vec:{speed_vec}')
-        print(f'speed_lim:{self.speed_lim_mat}')
-        print(f'H_speed:{H_speed}')
-        print(f'H_grad:{Grad_H_speed}')
-        print(f'U2:{U2.value}')
-        print(f'H_speed_dot:{H_speed_dot.value}')
-        print(f'H_constraint: {H_speed_dot.value + alpha_speed * H_speed}\n')
+        # print(f'speed_vec:{speed_vec}')
+        # print(f'speed_lim:\n{self.speed_lim_mat}')
+        # print(f'H_speed:{H_speed}')
+        # print(f'H_grad:\n{Grad_H_speed}')
+        # print(f'U:\n{U.value}')
+        # print(f'weights:{self.agent_weights}')
+        # print(f'F:{F}\nGrad_F:\n{Grad_F}\nFdot:{F_dot.value}')
+        # print(f'H_speed_dot:{H_speed_dot.value}')
+        # print(f'H_constraint: {H_speed_dot.value + alpha_speed * H_speed}\n')
 
         # Check the results
         if np.isnan(problem.value).any() == True:
             print("Nan encountered!")
-            return np.zeros((Na,Nw)), np.zeros((Na,)), 0.0, 0.0, 0.0
-        elif U1.value is None or U2.value is None or F_dot.value is None:
+            return np.zeros((Na,Nw+1)), 0.0, 0.0, 0.0
+        elif U.value is None or F_dot.value is None:
             print("None type returned")
-            return np.zeros((Na,Nw)), np.zeros((Na,)), 0.0, 0.0, 0.0
+            return np.zeros((Na,Nw+1)), 0.0, 0.0, 0.0
         else:
-            return U1.value, U2.value, F, F_dot.value, delta.value
+            return U.value, F, F_dot.value, delta.value
 
 
     # function to perform optimization iterations at a given beta
@@ -448,22 +445,24 @@ class MARS():
         F_prev = 1.0
         while t < Tf:
             # get control
-            U1, U2, F, Fdot, delta = self.get_CBF_control(T_prev, V_prev, beta, gamma, alpha, p)
+            U, F, Fdot, delta = self.get_CBF_control(T_prev, V_prev, beta, gamma, alpha, p)
 
             # compute new stepsize
             if iter_count > 0:
                 step_size_1 = np.sqrt(1 + theta_prev) * dt_prev
-                grad_diff = np.linalg.norm(U1 - U1_old) + np.linalg.norm(U2 - U2_old) + 1e-6  # Regularization term to prevent division by zero
+                grad_diff = np.linalg.norm(U - U_old) + 1e-6  # Regularization term to prevent division by zero
                 step_size_2 = (np.linalg.norm(T_prev - T_old) + np.linalg.norm(V_prev - V_old)) / (2 * grad_diff)  
                 dt = min(max(step_size_2, dt_min), dt_max)  # Keep dt in range [dt_min, dt_max]
+                # dt = dt_init
+                # print(f'inside_CBF_CLF_at_beta: grad_diff:{grad_diff:.4f}\tstep_size_2:{step_size_2:.4f}')
             else:
                 dt = dt_init
 
             # Euler update
-            T_next = T_prev + dt * U1
-            V_next = V_prev + dt * U2
+            T_next = T_prev + dt * U[:,:-1]
+            V_next = V_prev + dt * U[:,-1]
 
-            # ToDo: add a code to prevent T_next and V_next from going outside the safe set
+            # ToDo: add a code to project V_next back to the safe set
 
             # compute new theta_k
             if iter_count > 0:
@@ -488,15 +487,14 @@ class MARS():
             V_old = V_prev
             T_prev = T_next
             V_prev = V_next
-            U1_old = U1
-            U2_old = U2
+            U_old = U
             dt_prev = dt
             theta_prev = theta
             t += dt
             iter_count += 1
             F_prev = F
 
-        return T_prev, V_prev, U1, U2, F, Fdot, tol, delta[0]
+        return T_prev, V_prev, U, F, Fdot, tol, delta[0]
 
 
     def anneal(
@@ -536,7 +534,7 @@ class MARS():
             self.tolArray = 5.0 * np.ones(self.n_waypoints) * b/(b+1)
     
             if optimizer['name'] == 'cbf_clf':
-                Tb, Vb, U1b, U2b, Fb, Fdot_b, tolb, delta_b = self.CBF_CLF_at_beta(
+                Tb, Vb, Ub, Fb, Fdot_b, tolb, delta_b = self.CBF_CLF_at_beta(
                     b, Tb, Vb, dt_init, dt_min, dt_max, 
                     Tf, gamma, alpha, p, 
                     stop_tol=stop_tol, 
