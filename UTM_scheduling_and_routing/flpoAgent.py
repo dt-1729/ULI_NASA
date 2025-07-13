@@ -29,7 +29,8 @@ class flpoAgent():
         INF:float,
         offset_energy:bool,
         selfHop:bool,
-        net_mask:np.ndarray):
+        net_mask:np.ndarray,
+        stagewise_cost_coeffs:np.ndarray):
 
         assert(sd[0] != sd[1])
         self.n_wp = n_wp # number of waypoints
@@ -52,6 +53,7 @@ class flpoAgent():
         self.net_mask[self.d, self.d] = 1
         self.net_mask = self.net_mask + self.selfHop * np.eye(self.net_mask.shape[0])        
         self.n_stagewise_paths()
+        self.stagewise_cost_coeffs = stagewise_cost_coeffs
 
 
     def speedConsPenalty(self, transitSchedMat, distMat, gamma, coeff):
@@ -114,22 +116,23 @@ class flpoAgent():
     def returnStageWiseCost_v1(self, sched, speed, distMat):
         K = self.stageHorizon
         Xi_flip = [0]*K
+        c0, c1, c2 = self.stagewise_cost_coeffs
         dt_w2w = np.tile(sched, (self.n_wp, 1)) - np.tile(sched.reshape(-1,1), (1, self.n_wp))
         dt_w2d = (np.array([sched[self.d]]) - sched).reshape(-1,1) 
         dt_n2w = sched - np.array([sched[self.s]])
 
         for i in range(K):
             if i == 0: # penultimate stage to destination
-                Xi_flip[i] = (dt_w2d - distMat[:,self.d].reshape(-1,1)/speed)**2 + (distMat[:,self.d].reshape(-1,1)/speed)**2
+                Xi_flip[i] = c1*(dt_w2d - distMat[:,self.d].reshape(-1,1)/speed)**2 + c2*(distMat[:,self.d].reshape(-1,1)/speed)**2
                 Xi_flip[i][self.net_mask[:,self.d].reshape(-1,1)==0] = self.INF
                 Xi_flip[i][self.d,:] = 0
             elif i>0 and i<K-1: # internal stages
-                Xi_flip[i] = (dt_w2w - distMat/speed)**2 + (distMat/speed)**2
+                Xi_flip[i] = c1*(dt_w2w - distMat/speed)**2 + c2*(distMat/speed)**2
                 Xi_flip[i][self.net_mask == 0] = self.INF
                 Xi_flip[i][self.d, self.d] = 0.0
             elif i == K-1: # starting stage to 1st stage
                 Xi_flip[i] = np.expand_dims(
-                    sched[self.s]**2 + (dt_n2w - distMat[self.s,:]/speed)**2 + (distMat[self.s,:]/speed)**2, axis=0)
+                    c0*sched[self.s]**2 + c1*(dt_n2w - distMat[self.s,:]/speed)**2 + c2*(distMat[self.s,:]/speed)**2, axis=0)
                 Xi_flip[i][self.net_mask[self.s,None] == 0] = self.INF
         return Xi_flip[::-1]
 
@@ -137,18 +140,19 @@ class flpoAgent():
     def returnStagewiseGrad_v1(self, sched, speed, distMat):
         Nw = self.n_wp
         N_params = len(sched) + 1
-        G_w2w = np.zeros((N_params,Nw,Nw))
         K = self.stageHorizon
+        c0, c1, c2 = self.stagewise_cost_coeffs
+        G_w2w = np.zeros((N_params,Nw,Nw))
         G_flip = [0]*K
         mask = self.net_mask
 
         # compute gradient for w2w transitions w.r.t. schedules
         for k in range(N_params-1):
-            G_w2w[k,k,:] = 2*(sched[k] - sched + distMat[k,:]/speed) 
-            G_w2w[k,:,k] = 2*(sched[k] - sched - distMat[:,k]/speed)
+            G_w2w[k,k,:] = 2*c1*(sched[k] - sched + distMat[k,:]/speed) 
+            G_w2w[k,:,k] = 2*c1*(sched[k] - sched - distMat[:,k]/speed)
         
         # compute gradient for w2w transitions w.r.t. speed
-        G_w2w[N_params-1] = 2*distMat/speed**2 * (sched - sched.reshape(-1,1) - 2*distMat/speed) 
+        G_w2w[N_params-1] = 2*distMat/speed**2 * (c1*(sched - sched.reshape(-1,1)) - (c1+c2)*distMat/speed) 
 
         for i in range(K):
             if i == 0: # penultimate stage to destination
@@ -157,7 +161,7 @@ class flpoAgent():
             elif i == K-1: # start to first stage
                 G_start = (G_w2w[:,self.s,:]).reshape(-1,1,Nw)*mask[self.s,:]
                 G_off = np.zeros(G_start.shape)
-                G_off[self.s, :, :] = np.ones(Nw)*2*sched[self.s]*mask[self.s,:]
+                G_off[self.s, :, :] = 2*c0*sched[self.s]*np.ones(Nw)*mask[self.s,:]
                 G_flip[i] = G_start + G_off
             else:
                 G_flip[i] = G_w2w * mask
@@ -248,6 +252,8 @@ class flpoAgent():
     def calc_route_and_schedule(self, sched, dist_mat, Pb):
         O = [self.s]
         T = [sched[self.s]]
+        m_prev = self.s
+        dist = 0
         # Pb = self.getPathAssociations(sched=sched, dist_mat=dist_mat, beta=beta, gamma=gamma, coeff=coeff)
         for i,p in enumerate(Pb):
             if i==0:
@@ -256,10 +262,13 @@ class flpoAgent():
                 m = np.argmax(p[m,:])
             O.append(m)
             T.append(sched[m])
+            dist = dist + dist_mat[m_prev, m]
+            m_prev = m
             if m == self.d:
                 break
         self.route = O
         self.fin_sched = T
+        self.fin_avg_speed = dist/(T[-1]-T[0])
 
 
     def showGraph(self, wpLocations, distMat, mask, sched, figuresize, showEdgeTimeLim=True):

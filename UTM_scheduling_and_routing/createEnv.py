@@ -23,8 +23,10 @@ class MARS():
         wp_params, 
         seed, 
         offset_energy,
+        stagewiseCostCoeffs,
         selfHop,
-        printFlag):
+        printFlag
+        ):
 
         self.n_waypoints = n_waypoints
         self.n_agents = n_agents
@@ -34,6 +36,7 @@ class MARS():
         self.selfHop = selfHop
         self.initWaypoints(wp_params, seed=seed)
         self.initAgentParams(seed=seed)
+        self.stagewiseCostCoeffs = stagewiseCostCoeffs
         self.initFlpoAgents()
         self.printInitializationData(printFlag)
         self.active_waypoints = range(self.n_waypoints)
@@ -100,7 +103,8 @@ class MARS():
                 INF=self.INF,
                 offset_energy=self.offset_energy,
                 selfHop=self.selfHop,
-                net_mask=self.mask)
+                net_mask=self.mask,
+                stagewise_cost_coeffs=self.stagewiseCostCoeffs)
             list_agents.append(v)
         self.agents = list_agents
         pass
@@ -462,8 +466,6 @@ class MARS():
             T_next = T_prev + dt * U[:,:-1]
             V_next = V_prev + dt * U[:,-1]
 
-            # ToDo: add a code to project V_next back to the safe set
-
             # compute new theta_k
             if iter_count > 0:
                 theta = dt/dt_prev
@@ -474,13 +476,14 @@ class MARS():
             tol_V = np.max(np.abs(V_next-V_prev))
             tol_F = np.abs(F - F_prev)
             tol_Fdot = abs(Fdot * dt)
-            tol = np.sum(stop_tol_weight * np.array([tol_T, tol_F, tol_Fdot]))
+            stop_tol_weight = stop_tol_weight/np.sum(stop_tol_weight)
+            tol = np.sum(stop_tol_weight * np.array([tol_T, tol_V, tol_F, tol_Fdot]))
             if tol < stop_tol:
                 if verbose == 1 or verbose == 2:
-                    print(f'\tt:{t:.3e}\tFdot:{Fdot:.4f}\tF:{F:.4f}\tdt:{dt:.4e}\tspeed: {V_prev}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}')
+                    print(f'\tt:{t:.3e}\tFdot:{Fdot:.4f}\tF:{F:.4f}\tdt:{dt:.4e}\t\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}\tagent_weights:{self.agent_weights}')
                 break
             if verbose == 2:
-                print(f'\tt:{t:.3e}\tFdot:{Fdot:.4f}\tF:{F:.4f}\tdt:{dt:.4e}\tspeed: {V_prev}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}')
+                print(f'\tt:{t:.3e}\tFdot:{Fdot:.4f}\tF:{F:.4f}\tdt:{dt:.4e}\t\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}\tagent_weights:{self.agent_weights}')
 
             # Update variables for next iteration
             T_old = T_prev
@@ -531,7 +534,7 @@ class MARS():
             else:
                 self.active_waypoints = active_waypoints
 
-            self.tolArray = 5.0 * np.ones(self.n_waypoints) * b/(b+1)
+            self.tolArray = 10.0 * np.ones(self.n_waypoints) * b/(b+1)
     
             if optimizer['name'] == 'cbf_clf':
                 Tb, Vb, Ub, Fb, Fdot_b, tolb, delta_b = self.CBF_CLF_at_beta(
@@ -543,7 +546,7 @@ class MARS():
             total_cost = np.sum(self.agent_weights * self.C_agents)
 
             if annealPrint:
-                print(f'\nbeta: {b:.4e}\tcost: {total_cost:.3f}\tdot_cost: {Fdot_b:.3f}\ttolb: {tolb:.3e}\tdelta_b: {delta_b:.3f}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}')
+                print(f'\nbeta: {b:.4e}\tcost: {total_cost:.3f}\tdot_cost: {Fdot_b:.3f}\ttolb: {tolb:.3e}\tdelta_b: {delta_b:.3f}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}\tagent_weights:{self.agent_weights}')
 
         # compute final probability associations
         Pb_a = []
@@ -701,13 +704,15 @@ class MARS():
 def calc_agent_routes_and_schedules(mars:MARS, Pb_a:list, printRoutes=False):
     routes = []
     fin_schedules = []
+    fin_speeds = []
     
     for i,a in enumerate(mars.agents):
         a.calc_route_and_schedule(sched=mars.sched_mat[i,:], dist_mat=mars.dist_mat, Pb=Pb_a[i])
         routes.append(a.route)
         fin_schedules.append(a.fin_sched)
+        fin_speeds.append(a.fin_avg_speed)
         if printRoutes:
-            print(f'route v{i}: {a.route}, schedule: {np.round(a.fin_sched,2)}')
+            print(f'route v{i}: {a.route}, schedule: {np.round(a.fin_sched,2)},\tspeed: {a.fin_avg_speed:.2f},\tspeed_lim: {np.round(mars.speed_lim_mat[i],2)}')
 
     return routes, fin_schedules
 
