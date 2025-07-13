@@ -712,7 +712,7 @@ def calc_agent_routes_and_schedules(mars:MARS, Pb_a:list, printRoutes=False):
         fin_schedules.append(a.fin_sched)
         fin_speeds.append(a.fin_avg_speed)
         if printRoutes:
-            print(f'route v{i}: {a.route}, schedule: {np.round(a.fin_sched,2)},\tspeed: {a.fin_avg_speed:.2f},\tspeed_lim: {np.round(mars.speed_lim_mat[i],2)}')
+            print(f'route v{i}: {a.route}, schedule: {np.round(a.fin_sched,2)},\tmean_spd: {a.fin_avg_speed:.2f},\tmax_spd: {np.max(a.route_speed):.2f},\tmin_spd: {np.min(a.route_speed):.2f},\tspeed_lim: {np.round(mars.speed_lim_mat[i],2)}')
 
     return routes, fin_schedules
 

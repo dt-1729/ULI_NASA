@@ -252,6 +252,7 @@ class flpoAgent():
     def calc_route_and_schedule(self, sched, dist_mat, Pb):
         O = [self.s]
         T = [sched[self.s]]
+        speeds = []
         m_prev = self.s
         dist = 0
         # Pb = self.getPathAssociations(sched=sched, dist_mat=dist_mat, beta=beta, gamma=gamma, coeff=coeff)
@@ -263,12 +264,17 @@ class flpoAgent():
             O.append(m)
             T.append(sched[m])
             dist = dist + dist_mat[m_prev, m]
-            m_prev = m
+            speed = dist_mat[m_prev, m]/(sched[m]-sched[m_prev])
+            speeds.append(speed)
             if m == self.d:
                 break
+            else:
+                m_prev = m
         self.route = O
         self.fin_sched = T
-        self.fin_avg_speed = dist/(T[-1]-T[0])
+        # self.fin_avg_speed = dist/(T[-1]-T[0])
+        self.fin_avg_speed = np.mean(speeds)
+        self.route_speed = speeds
 
 
     def showGraph(self, wpLocations, distMat, mask, sched, figuresize, showEdgeTimeLim=True):
