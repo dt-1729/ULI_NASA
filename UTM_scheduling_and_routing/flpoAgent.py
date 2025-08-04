@@ -34,8 +34,8 @@ class flpoAgent():
 
         assert(sd[0] != sd[1])
         self.n_wp = n_wp # number of waypoints
-        self.s = sd[0] # starting waypoint index
-        self.d = sd[1] # destination waypoint index
+        self.s = int(sd[0]) # starting waypoint index
+        self.d = int(sd[1]) # destination waypoint index
         self.sched = sched # schedule at all the waypoints
         self.speed = speed # speed of the agent
         self.stageHorizon = self.n_wp+1 # number of FLPO stages
@@ -258,9 +258,9 @@ class flpoAgent():
         # Pb = self.getPathAssociations(sched=sched, dist_mat=dist_mat, beta=beta, gamma=gamma, coeff=coeff)
         for i,p in enumerate(Pb):
             if i==0:
-                m = np.argmax(p[0,:])
+                m = int(np.argmax(p[0,:]))
             else:
-                m = np.argmax(p[m,:])
+                m = int(np.argmax(p[m,:]))
             O.append(m)
             T.append(sched[m])
             dist = dist + dist_mat[m_prev, m]

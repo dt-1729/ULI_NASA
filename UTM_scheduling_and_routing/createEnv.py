@@ -11,6 +11,7 @@ import supporting_functions
 from collections import defaultdict
 from matplotlib.cm import get_cmap
 import cvxpy as cp
+from tabulate import tabulate
 
 # create a multiagent scheduling and routing class
 class MARS():
@@ -443,7 +444,7 @@ class MARS():
         T_prev = Tb
         V_prev = Vb
         dt_prev = dt_init
-        theta_prev = np.Inf
+        theta_prev = np.inf
         t = 0.0
         iter_count = 0
         F_prev = 1.0
@@ -534,8 +535,9 @@ class MARS():
             else:
                 self.active_waypoints = active_waypoints
 
-            self.tolArray = 10.0 * np.ones(self.n_waypoints) * b/(b+1)
-    
+            # self.tolArray = 10.0 * np.ones(self.n_waypoints) * b/(b+1)
+            self.tolArray = np.ones(self.n_waypoints) * (10*b/(b+1) - 1 * 1/(b+1))
+
             if optimizer['name'] == 'cbf_clf':
                 Tb, Vb, Ub, Fb, Fdot_b, tolb, delta_b = self.CBF_CLF_at_beta(
                     b, Tb, Vb, dt_init, dt_min, dt_max, 
@@ -701,18 +703,49 @@ class MARS():
         return C_arr, sched_vec, rt_arr, reach_mat_beta_data, filter_wp_beta_data, beta_arr, gamma_arr, conflict_C_arr, Pb_a
 
 
+# def calc_agent_routes_and_schedules(mars:MARS, Pb_a:list, printRoutes=False):
+#     routes = []
+#     fin_schedules = []
+#     fin_speeds = []
+    
+#     for i,a in enumerate(mars.agents):
+#         a.calc_route_and_schedule(sched=mars.sched_mat[i,:], dist_mat=mars.dist_mat, Pb=Pb_a[i])
+#         routes.append(a.route)
+#         fin_schedules.append(a.fin_sched)
+#         fin_speeds.append(a.fin_avg_speed)
+#         if printRoutes:
+#             print(f'route v{i}: {a.route}, \tschedule: {np.round(a.fin_sched,2)}, \tagent_speed: {mars.speed_vec[i]:.2f}, \tmean_spd: {a.fin_avg_speed:.2f}, \tmax_spd: {np.max(a.route_speed):.2f}, \tmean_spd1: {a.speed:.2f}, \tspeed_lim: {np.round(mars.speed_lim_mat[i],2)}')
+
+#     return routes, fin_schedules
+
 def calc_agent_routes_and_schedules(mars:MARS, Pb_a:list, printRoutes=False):
     routes = []
     fin_schedules = []
     fin_speeds = []
+
+    table_data = []
+    headers = ["Agent", "Route", "Schedule", "Agent Speed", "Mean Spd", "Max Spd", "Speed Limit"]
     
-    for i,a in enumerate(mars.agents):
+    for i, a in enumerate(mars.agents):
         a.calc_route_and_schedule(sched=mars.sched_mat[i,:], dist_mat=mars.dist_mat, Pb=Pb_a[i])
         routes.append(a.route)
         fin_schedules.append(a.fin_sched)
         fin_speeds.append(a.fin_avg_speed)
+        
         if printRoutes:
-            print(f'route v{i}: {a.route}, schedule: {np.round(a.fin_sched,2)},\tmean_spd: {a.fin_avg_speed:.2f},\tmax_spd: {np.max(a.route_speed):.2f},\tmin_spd: {np.min(a.route_speed):.2f},\tspeed_lim: {np.round(mars.speed_lim_mat[i],2)}')
+            row = [
+                f"v{i}",
+                str(a.route),
+                np.round(a.fin_sched, 2),
+                f"{mars.speed_vec[i]:.2f}",
+                f"{a.fin_avg_speed:.2f}",
+                f"{np.max(a.route_speed):.2f}",
+                np.round(mars.speed_lim_mat[i], 2)
+            ]
+            table_data.append(row)
+
+    if printRoutes:
+        print(tabulate(table_data, headers=headers, tablefmt="pretty"))
 
     return routes, fin_schedules
 
