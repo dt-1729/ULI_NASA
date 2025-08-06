@@ -288,6 +288,47 @@ class MARS():
         
         return H, Grad_H
 
+
+    def CBF_waypoints_ellipse(self, sched_mat, waypoints, param, returnGrad=True):
+        Nw = len(waypoints)
+        Na = self.n_agents
+
+        # define gradient as a 3D tensor
+        H = np.zeros((Na * (Na-1)//2, Nw))
+        Grad_H1 = np.zeros((Nw, Na * (Na-1)//2, Na))
+        Grad_H2 = np.zeros((Nw, Na * (Na-1)//2, Na))
+
+        # define ellipse params
+        a, b = self.tolArray*param, self.tolArray*param/(param+1)
+        print(f"ellipse_params:a:{a}\tb:{b}")
+
+        # the following loop over waypoints is parallelizable
+        for i, wp in enumerate(waypoints):
+
+            Ti = sched_mat[:,wp]
+            KTi1 = (Ti + Ti.reshape(-1,1))/np.sqrt(2)
+            KTi2 = (Ti - Ti.reshape(-1,1))/np.sqrt(2)
+            Hi_mat = (KTi1/a[wp])**2 + (KTi2/b[wp])**2 - 1
+            Hi_triu = np.triu_indices_from(Hi_mat, k=1)
+            H[:,i] = Hi_mat[Hi_triu]
+
+            if returnGrad==True:
+                # Compute gradient
+                start_row = 0
+                n_rows = Na-1
+                for j in range(Na-1):
+                    Grad_H1[i, start_row : start_row + n_rows, j] = 2*KTi1[j+1:, j]/a[wp]
+                    Grad_H1[i, start_row : start_row + n_rows, j+1:] = np.diag(2*KTi1[j,j+1:]/a[wp])
+                    Grad_H2[i, start_row : start_row + n_rows, j] = 2*KTi2[j+1:, j]/b[wp]
+                    Grad_H2[i, start_row : start_row + n_rows, j+1:] = np.diag(2*KTi2[j,j+1:]/b[wp])
+                    start_row = start_row + n_rows
+                    n_rows = n_rows-1
+
+        Grad_H = Grad_H1 + Grad_H2
+
+        return H, Grad_H
+
+
     # ToDo: define CBF (and its gradient) for speed constraints
     def CBF_agents(self, speed_vec):
         H = (speed_vec - self.speed_lim_mat[:,0])*(self.speed_lim_mat[:,1]-speed_vec)
@@ -378,16 +419,6 @@ class MARS():
 
         # Solve the problem using OSQP with customized options
         result = problem.solve(solver = 'OSQP', **solver_options)
-
-        # print(f'speed_vec:{speed_vec}')
-        # print(f'speed_lim:\n{self.speed_lim_mat}')
-        # print(f'H_speed:{H_speed}')
-        # print(f'H_grad:\n{Grad_H_speed}')
-        # print(f'U:\n{U.value}')
-        # print(f'weights:{self.agent_weights}')
-        # print(f'F:{F}\nGrad_F:\n{Grad_F}\nFdot:{F_dot.value}')
-        # print(f'H_speed_dot:{H_speed_dot.value}')
-        # print(f'H_constraint: {H_speed_dot.value + alpha_speed * H_speed}\n')
 
         # Check the results
         if np.isnan(problem.value).any() == True:
@@ -481,11 +512,11 @@ class MARS():
             tol = np.sum(stop_tol_weight * np.array([tol_T, tol_V, tol_F, tol_Fdot]))
             if tol < stop_tol:
                 if verbose == 1 or verbose == 2:
-                    print(f'\tt:{t:.3e}\tFdot:{Fdot:.4f}\tF:{F:.4f}\tdt:{dt:.4e}\t\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}\tagent_weights:{self.agent_weights}')
+                    print(f'\tt:{t:.3e}\tdt:{dt:.4e}\tF:{F:.4f}\tFdot:{Fdot:.4f}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}')
                 break
             if verbose == 2:
-                print(f'\tt:{t:.3e}\tFdot:{Fdot:.4f}\tF:{F:.4f}\tdt:{dt:.4e}\t\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}\tagent_weights:{self.agent_weights}')
-
+                print(f'\tt:{t:.3e}\tdt:{dt:.4e}\tF:{F:.4f}\tFdot:{Fdot:.4f}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}')
+            
             # Update variables for next iteration
             T_old = T_prev
             V_old = V_prev
@@ -548,7 +579,7 @@ class MARS():
             total_cost = np.sum(self.agent_weights * self.C_agents)
 
             if annealPrint:
-                print(f'\nbeta: {b:.4e}\tcost: {total_cost:.3f}\tdot_cost: {Fdot_b:.3f}\ttolb: {tolb:.3e}\tdelta_b: {delta_b:.3f}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}\tagent_weights:{self.agent_weights}')
+                print(f'\nbeta: {b:.4e}\tcost: {total_cost:.3f}\ttolb: {tolb:.3e}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}')
 
         # compute final probability associations
         Pb_a = []
@@ -724,7 +755,7 @@ def calc_agent_routes_and_schedules(mars:MARS, Pb_a:list, printRoutes=False):
     fin_speeds = []
 
     table_data = []
-    headers = ["Agent", "Route", "Schedule", "Agent Speed", "Mean Spd", "Max Spd", "Speed Limit"]
+    headers = ["A", "R", "T", "V", "V Mean", "V Max", "V Lim", "Cost"]
     
     for i, a in enumerate(mars.agents):
         a.calc_route_and_schedule(sched=mars.sched_mat[i,:], dist_mat=mars.dist_mat, Pb=Pb_a[i])
@@ -741,6 +772,45 @@ def calc_agent_routes_and_schedules(mars:MARS, Pb_a:list, printRoutes=False):
                 f"{a.fin_avg_speed:.2f}",
                 f"{np.max(a.route_speed):.2f}",
                 np.round(mars.speed_lim_mat[i], 2)
+            ]
+            table_data.append(row)
+
+    if printRoutes:
+        print(tabulate(table_data, headers=headers, tablefmt="pretty"))
+
+    return routes, fin_schedules
+
+
+def show_solution_table(mars:MARS, Pb_a:list, beta:float, printRoutes=False):
+    routes = []
+    fin_schedules = []
+    fin_speeds = []
+
+    table_data = []
+    headers = ["A", "R", "T", "V", "V Mean", "V Max", "V Lim", "Cost"]
+
+    mars.transportCost_v1(
+        mars.sched_mat, 
+        mars.speed_vec, 
+        beta=beta, 
+        allowPrint=False) 
+
+    for i, a in enumerate(mars.agents):
+        a.calc_route_and_schedule(sched=mars.sched_mat[i,:], dist_mat=mars.dist_mat, Pb=Pb_a[i])
+        routes.append(a.route)
+        fin_schedules.append(a.fin_sched)
+        fin_speeds.append(a.fin_avg_speed)
+        
+        if printRoutes:
+            row = [
+                f"v{i}",
+                str(a.route),
+                np.round(a.fin_sched, 2),
+                f"{mars.speed_vec[i]:.2f}",
+                f"{a.fin_avg_speed:.2f}",
+                f"{np.max(a.route_speed):.2f}",
+                np.round(mars.speed_lim_mat[i], 2),
+                f"{mars.C_agents[i]:.2f}"
             ]
             table_data.append(row)
 
