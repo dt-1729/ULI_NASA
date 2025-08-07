@@ -320,7 +320,8 @@ class MARS():
 
         elif self.ca_cbf == "ellipsoidal":
             # define ellipse params
-            a, b = self.tolArray*param, self.tolArray*param/(param+1)
+            coeff = np.exp(param)
+            a, b = self.tolArray * coeff, self.tolArray * coeff/(coeff+1)
             # print(f"ellipse_params:a:{a}\tb:{b}")
 
             # the following loop over waypoints is parallelizable
@@ -333,14 +334,14 @@ class MARS():
                 Hi_triu = np.triu_indices_from(Hi_mat, k=1)
                 H[:,i] = Hi_mat[Hi_triu]
 
-                if returnGrad==True:
-                    # Compute gradient
-                    start_row = 0
-                    n_rows = Na-1
-                    for j in range(Na-1):
-                        Grad_H[i, start_row : start_row + n_rows, j] = 2*KTi1[j+1:, j]/a[wp]**2 + 2*KTi2[j+1:, j]/b[wp]**2
-                        Grad_H[i, start_row : start_row + n_rows, j+1:] = np.diag(2*KTi1[j,j+1:]/a[wp]**2) + np.diag(2*KTi2[j,j+1:]/b[wp]**2)
-                        start_row = start_row + n_rows
+                if returnGrad==True: 
+                    # Compute gradient 
+                    start_row = 0 
+                    n_rows = Na-1 
+                    for j in range(Na-1): 
+                        Grad_H[i, start_row : start_row + n_rows, j] = 2*KTi1[j+1:, j]/a[wp]**2 + 2*KTi2[j+1:, j]/b[wp]**2 
+                        Grad_H[i, start_row : start_row + n_rows, j+1:] = np.diag(2*KTi1[j,j+1:]/a[wp]**2) + np.diag(2*KTi2[j,j+1:]/b[wp]**2) 
+                        start_row = start_row + n_rows 
                         n_rows = n_rows-1
 
         return H, Grad_H
@@ -426,12 +427,12 @@ class MARS():
 
         # Solver Options for OSQP
         solver_options = {
-            'max_iter': 100000,         # Increase max iterations to 20000
-            'eps_abs': 1e-4,           # Adjust absolute tolerance
-            'eps_rel': 1e-4,           # Adjust relative tolerance
-            'eps_prim_inf': 1e-3,      # Adjust primal infeasibility tolerance
-            'eps_dual_inf': 1e-3,      # Adjust dual infeasibility tolerance
-            'verbose': True           # Enable verbose output to track solver progress
+            'max_iter': 200000,         # Increase max iterations to 20000
+            'eps_abs': 1e-3,           # Adjust absolute tolerance
+            'eps_rel': 1e-3,           # Adjust relative tolerance
+            'eps_prim_inf': 1e-2,      # Adjust primal infeasibility tolerance
+            'eps_dual_inf': 1e-2,      # Adjust dual infeasibility tolerance
+            'verbose': False           # Enable verbose output to track solver progress
         }
 
         # Solve the problem using OSQP with customized options
