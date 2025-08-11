@@ -261,37 +261,8 @@ class MARS():
         return Grad_F
 
 
-    # def CBF_waypoints(self, sched_mat, waypoints, returnGrad=True):
-    #     Nw = len(waypoints)
-    #     Na = self.n_agents
 
-    #     # define gradient as a 3D tensor
-    #     H = np.zeros((Na * (Na-1)//2, Nw))
-    #     Grad_H = np.zeros((Nw, Na * (Na-1)//2, Na))
-
-    #     # the following loop over waypoints is parallelizable
-    #     for i, wp in enumerate(waypoints):
-    #         # print(f'i:{i}\twp:{wp}')
-    #         Ti = sched_mat[:,wp]
-    #         KTi = Ti - Ti.reshape(-1,1)
-    #         Hi_mat = KTi**2
-    #         Hi_triu = np.triu_indices_from(Hi_mat, k=1)
-    #         H[:,i] = Hi_mat[Hi_triu] - self.tolArray[wp]**2
-    #         if returnGrad==True:
-    #             # Compute gradient
-    #             start_row = 0
-    #             n_rows = Na-1
-    #             for j in range(Na-1):
-    #                 Grad_H[i, start_row : start_row + n_rows, j] = 2*KTi[j+1:, j]
-    #                 Grad_H[i, start_row : start_row + n_rows, j+1:] = np.diag(2*KTi[j,j+1:])
-    #                 start_row = start_row + n_rows
-    #                 n_rows = n_rows-1
-    #         # print(f'\nwp:{i}\nKti:{KTi}\nHi_mat:\n{Hi_mat}\nHi:\n{H[:,i]}\ngrad_Hi:\n{Grad_H[i,:,:]}')
-        
-    #     return H, Grad_H
-
-
-    def CBF_waypoints(self, sched_mat, waypoints, param, returnGrad=True):
+    def CBF_waypoints(self, sched_mat, waypoints, returnGrad=True):
         Nw = len(waypoints)
         Na = self.n_agents
 
@@ -299,7 +270,8 @@ class MARS():
         H = np.zeros((Na * (Na-1)//2, Nw))
         Grad_H = np.zeros((Nw, Na * (Na-1)//2, Na))
 
-        if self.ca_cbf == "linear":
+        if self.ca_cbf == 'linear':
+            eps = self.ca_cbf['eps']
             # the following loop over waypoints is parallelizable
             for i, wp in enumerate(waypoints):
                 # print(f'i:{i}\twp:{wp}')
@@ -307,7 +279,7 @@ class MARS():
                 KTi = Ti - Ti.reshape(-1,1)
                 Hi_mat = KTi**2
                 Hi_triu = np.triu_indices_from(Hi_mat, k=1)
-                H[:,i] = Hi_mat[Hi_triu] - self.tolArray[wp]**2
+                H[:,i] = Hi_mat[Hi_triu] - eps[wp]**2
                 if returnGrad==True:
                     # Compute gradient
                     start_row = 0
@@ -318,11 +290,8 @@ class MARS():
                         start_row = start_row + n_rows
                         n_rows = n_rows-1
 
-        elif self.ca_cbf == "ellipsoidal":
-            # define ellipse params
-            coeff = np.exp(param)
-            a, b = self.tolArray * coeff, self.tolArray * coeff/(coeff+1)
-            # print(f"ellipse_params:a:{a}\tb:{b}")
+        elif self.ca_cbf['mode'] == 'ellipse':
+            a, b = self.ca_cbf['major_axis'], self.ca_cbf['minor_axis']
 
             # the following loop over waypoints is parallelizable
             for i, wp in enumerate(waypoints):
@@ -334,7 +303,7 @@ class MARS():
                 Hi_triu = np.triu_indices_from(Hi_mat, k=1)
                 H[:,i] = Hi_mat[Hi_triu]
 
-                if returnGrad==True: 
+                if returnGrad==True:
                     # Compute gradient 
                     start_row = 0 
                     n_rows = Na-1 
@@ -408,7 +377,7 @@ class MARS():
             ]
         else:
             # get collision avoidance CBF and its dot
-            H, Grad_H = self.CBF_waypoints(sched_mat, self.active_waypoints, param=beta, returnGrad=True)
+            H, Grad_H = self.CBF_waypoints(sched_mat, self.active_waypoints, returnGrad=True)
             H_dot_list = []
             for i, wp in enumerate(self.active_waypoints):
                 H_dot_list.append(
@@ -437,14 +406,21 @@ class MARS():
 
         # Solve the problem using OSQP with customized options
         result = problem.solve(solver = 'OSQP', **solver_options)
+        print(f'H:{H}')
+        print(f'Hdot:{H_dot.value}')
+        print(f'U:{U.value}')
         # result = problem.solve(solver = 'PIQP')
 
         # Check the results
         if np.isnan(problem.value).any() == True:
             print("Nan encountered!")
+            print(problem.status)
             return np.zeros((Na,Nw+1)), 0.0, 0.0, 0.0
         elif U.value is None or F_dot.value is None:
             print("None type returned")
+            print(problem.status)
+            print(H)
+            print(a, b)
             return np.zeros((Na,Nw+1)), 0.0, 0.0, 0.0
         else:
             return U.value, F, F_dot.value, delta.value
@@ -585,8 +561,19 @@ class MARS():
             else:
                 self.active_waypoints = active_waypoints
 
-            # self.tolArray = 10.0 * np.ones(self.n_waypoints) * b/(b+1)
-            # self.tolArray = np.ones(self.n_waypoints) * (10*b/(b+1) - 1 * 1/(b+1))
+            if self.ca_cbf['mode'] == 'ellipse':
+                r = b
+                self.ca_cbf['major_axis'] = r * self.tolArray
+                self.ca_cbf['minor_axis'] = r / (r+1) * self.tolArray
+                if annealPrint:
+                    a, b = self.ca_cbf['major_axis'][0], self.ca_cbf['minor_axis'][0]
+                    print(f'a:{a:.3f}\tb:{b:.3f}')
+
+            elif self.ca_cbf['mode'] == 'linear':
+                self.ca_cbf['eps'] = self.tolArray * (b/b+1) + self.ca_cbf['eta'] * 1/(b+1)
+                if annealPrint:
+                    eps = self.ca_cbf['eps'][0]
+                    print(f'eps:{eps:.3f}')
 
             if optimizer['name'] == 'cbf_clf':
                 Tb, Vb, Ub, Fb, Fdot_b, tolb, delta_b = self.CBF_CLF_at_beta(
