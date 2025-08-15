@@ -22,7 +22,8 @@ class flpoAgent():
         self, 
         n_wp:int, 
         sd:list, 
-        sched:np.ndarray, 
+        sched:np.ndarray,
+        start_time:float, 
         speed:float,
         speedLim:np.ndarray, 
         process_T:np.ndarray, 
@@ -37,6 +38,7 @@ class flpoAgent():
         self.s = int(sd[0]) # starting waypoint index
         self.d = int(sd[1]) # destination waypoint index
         self.sched = sched # schedule at all the waypoints
+        self.start_time = start_time # start time of the agent
         self.speed = speed # speed of the agent
         self.stageHorizon = self.n_wp+1 # number of FLPO stages
         self.speedLim = speedLim # minimum and maximum speeds allowed
@@ -132,7 +134,7 @@ class flpoAgent():
                 Xi_flip[i][self.d, self.d] = 0.0
             elif i == K-1: # starting stage to 1st stage
                 Xi_flip[i] = np.expand_dims(
-                    c0*sched[self.s]**2 + c1*(dt_n2w - distMat[self.s,:]/speed)**2 + c2*(distMat[self.s,:]/speed)**2, axis=0)
+                    c0*(sched[self.s]-self.start_time)**2 + c1*(dt_n2w - distMat[self.s,:]/speed)**2 + c2*(distMat[self.s,:]/speed)**2, axis=0)
                 Xi_flip[i][self.net_mask[self.s,None] == 0] = self.INF
         return Xi_flip[::-1]
 
@@ -161,7 +163,7 @@ class flpoAgent():
             elif i == K-1: # start to first stage
                 G_start = (G_w2w[:,self.s,:]).reshape(-1,1,Nw)*mask[self.s,:]
                 G_off = np.zeros(G_start.shape)
-                G_off[self.s, :, :] = 2*c0*sched[self.s]*np.ones(Nw)*mask[self.s,:]
+                G_off[self.s, :, :] = 2*c0*(sched[self.s]-self.start_time)*np.ones(Nw)*mask[self.s,:]
                 G_flip[i] = G_start + G_off
             else:
                 G_flip[i] = G_w2w * mask
