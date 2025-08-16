@@ -541,6 +541,8 @@ class MARS():
 
         Tb = T0
         Vb = V0
+        ra = 0.1
+        rb = 1
 
         if optimizer['name'] == 'cbf_clf':
             dt_init         = optimizer['dt_init']
@@ -566,9 +568,10 @@ class MARS():
                 self.active_waypoints = active_waypoints
 
             if self.ca_cbf['mode'] == 'ellipse':
-                r = beta
-                self.ca_cbf['major_axis'] = (r**2+0.01) / (r**2+1) * np.ones(self.tolArray.shape) * 50
-                self.ca_cbf['minor_axis'] = r / (r+1) * self.tolArray
+                self.ca_cbf['major_axis'] = ra**2 / (ra**2 + 1) * np.ones(self.tolArray.shape) * 100
+                self.ca_cbf['minor_axis'] = rb**2 / (rb**2 + 1) * self.tolArray
+                ra = ra + 0.1
+                rb = rb + 0.0
                 if annealPrint:
                     a, b = self.ca_cbf['major_axis'][0], self.ca_cbf['minor_axis'][0]
                     print(f'a:{a:.3f}\tb:{b:.3f}')
@@ -586,10 +589,14 @@ class MARS():
                     stop_tol=stop_tol, 
                     stop_tol_weight=stop_tol_weight/np.sum(stop_tol_weight), 
                     verbose=verbose)
+
             total_cost = np.sum(self.agent_weights * self.C_agents)
 
+            Hb, gradHb = self.CBF_waypoints(Tb, self.active_waypoints, returnGrad=False)
+            H_minb = np.min(Hb[16])
+            
             if annealPrint:
-                print(f'\nbeta: {beta:.4e}\tcost: {total_cost:.3f}\ttolb: {tolb:.3e}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}')
+                print(f'\nbeta: {beta:.4e}\tcost: {total_cost:.3f}\ttolb: {tolb:.3e}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}\tHminb:{H_minb:.2f}')
 
         # compute final probability associations
         Pb_a = []
