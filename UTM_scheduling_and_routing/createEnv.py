@@ -79,7 +79,8 @@ class MARS():
         self.sched_mat = np.random.uniform(0.0, 50.0, (na, nw))
         self.start_times = np.random.uniform(0.0, 5.0, na)*0
         self.sched_mat[np.arange(na),self.sd_mat[:,0]] = self.start_times
-        self.process_T = np.random.uniform(3,5,(na, nw))*0
+        self.T_upper_bound = 200 
+        self.process_T = np.random.uniform(3,5,(na, nw))*0 
         self.process_T[np.arange(na),self.sd_mat[:,1]] = np.zeros(na)
         np.random.seed(None)
         random.seed(None)
@@ -339,7 +340,7 @@ class MARS():
     #     return active_waypoints
 
 
-    def get_CBF_control(self, sched_mat, speed_vec, beta, gamma, alpha_s, alpha_c, alpha_r, p):
+    def get_CBF_control(self, sched_mat, speed_vec, beta, gamma, alpha_s, alpha_c, alpha_r, alpha_q, p):
 
         Nw = self.n_waypoints
         Na = self.n_agents
@@ -370,8 +371,8 @@ class MARS():
             constraints = [
                 F_dot <= -gamma * F + delta, # to decrease free energy
                 H_speed_dot >= -alpha_s * H_speed, # speed limit constraint
-                U[tup_start_indices] >= -alpha_r * (sched_mat[tup_start_indices]-self.start_times) # to maintain time-positivity
-                # U >= -alpha_q * (200 - sched_mat)
+                U[tup_start_indices] >= -alpha_r * (sched_mat[tup_start_indices]-self.start_times), # to maintain time-positivity
+                U[:,:-1] <= alpha_q * (self.T_upper_bound - sched_mat) # to maintain the schedule bounded
                 # U[tup_start_indices] == 0.0 * (sched_mat[tup_start_indices]) # to maintain time-positivity
             ]
         else:
@@ -388,7 +389,8 @@ class MARS():
                 F_dot <= -gamma * F + delta, # decrease free energy
                 H_speed_dot >= -alpha_s * H_speed, # speed limit constraint
                 H_dot >= -alpha_c * H, # collision avoidance constraint
-                U[tup_start_indices] >= -alpha_r * (sched_mat[tup_start_indices]-self.start_times) # to maintain time-positivity
+                U[tup_start_indices] >= -alpha_r * (sched_mat[tup_start_indices]-self.start_times), # to maintain time-positivity
+                U[:,:-1] <= alpha_q * (self.T_upper_bound - sched_mat) # to maintain the schedule bounded
                 # U[tup_start_indices] == 0.0 * (sched_mat[tup_start_indices]) # to maintain time-positivity
             ]
 
@@ -459,6 +461,7 @@ class MARS():
         alpha_s,
         alpha_c,
         alpha_r, 
+        alpha_q,
         p, 
         stop_tol,
         stop_tol_weight,
@@ -474,7 +477,7 @@ class MARS():
         F_prev = 1.0
         while t < Tf:
             # get control
-            U, F, Fdot, delta = self.get_CBF_control(T_prev, V_prev, beta, gamma, alpha_s, alpha_c, alpha_r, p)
+            U, F, Fdot, delta = self.get_CBF_control(T_prev, V_prev, beta, gamma, alpha_s, alpha_c, alpha_r, alpha_q, p)
             H, GradH = self.CBF_waypoints(T_prev, self.active_waypoints, returnGrad=True)
 
             if None in (F, Fdot, delta):
@@ -511,8 +514,10 @@ class MARS():
                     print(f'\tt:{t:.3e}\tdt:{dt:.4e}\tF:{F:.4f}\tFdot:{Fdot:.4f}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}')
                 break
             if verbose == 2:
+                # H, gradH = self.CBF_waypoints(T_next, self.active_waypoints, returnGrad=False)
+                Hmin = 0.0 #np.min(H)
                 # print(f'\tt:{t:.3e}\tdt:{dt:.4e}\tF:{F:.4f}\tFdot:{Fdot:.4f}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}\n\tH:{H}')
-                print(f'\tt:{t:.3e}\tdt:{dt:.4e}\tF:{F:.4f}\tFdot:{Fdot:.4f}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}')
+                print(f'\tt:{t:.3e}\tdt:{dt:.4e}\tF:{F:.4f}\tFdot:{Fdot:.4f}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}\tHmin:{Hmin}')
             
             # Update variables for next iteration
             T_old = T_prev
@@ -542,7 +547,7 @@ class MARS():
         Tb = T0
         Vb = V0
         ra = 0.1
-        rb = 1
+        rb = 0.05
 
         if optimizer['name'] == 'cbf_clf':
             dt_init         = optimizer['dt_init']
@@ -553,6 +558,7 @@ class MARS():
             alpha_s         = optimizer['alpha_s']
             alpha_c         = optimizer['alpha_c']
             alpha_r         = optimizer['alpha_r']
+            alpha_q         = optimizer['alpha_q']
             p               = optimizer['p']
             stop_tol        = optimizer['stop_tol']
             stop_tol_weight = optimizer['stop_tol_weight']
@@ -568,7 +574,7 @@ class MARS():
                 self.active_waypoints = active_waypoints
 
             if self.ca_cbf['mode'] == 'ellipse':
-                self.ca_cbf['major_axis'] = ra**2 / (ra**2 + 1) * np.ones(self.tolArray.shape) * 100
+                self.ca_cbf['major_axis'] = ra**2 / (ra**2 + 1) * np.ones(self.tolArray.shape) * 200
                 self.ca_cbf['minor_axis'] = rb**2 / (rb**2 + 1) * self.tolArray
                 ra = ra + 0.1
                 rb = rb + 0.0
@@ -585,15 +591,15 @@ class MARS():
             if optimizer['name'] == 'cbf_clf':
                 Tb, Vb, Ub, Fb, Fdot_b, tolb, delta_b = self.CBF_CLF_at_beta(
                     beta, Tb, Vb, dt_init, dt_min, dt_max, 
-                    Tf, gamma, alpha_s, alpha_c, alpha_r, p, 
+                    Tf, gamma, alpha_s, alpha_c, alpha_r, alpha_q, p, 
                     stop_tol=stop_tol, 
                     stop_tol_weight=stop_tol_weight/np.sum(stop_tol_weight), 
                     verbose=verbose)
 
             total_cost = np.sum(self.agent_weights * self.C_agents)
 
-            Hb, gradHb = self.CBF_waypoints(Tb, self.active_waypoints, returnGrad=False)
-            H_minb = np.min(Hb[16])
+            # Hb, gradHb = self.CBF_waypoints(Tb, self.active_waypoints, returnGrad=False)
+            H_minb = 0.0 #np.min(Hb)
             
             if annealPrint:
                 print(f'\nbeta: {beta:.4e}\tcost: {total_cost:.3f}\ttolb: {tolb:.3e}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}\tHminb:{H_minb:.2f}')
