@@ -547,7 +547,7 @@ class MARS():
         Tb = T0
         Vb = V0
         ra = 0.1
-        rb = 0.05
+        rb = 1
 
         if optimizer['name'] == 'cbf_clf':
             dt_init         = optimizer['dt_init']
