@@ -290,30 +290,53 @@ class MARS():
                         start_row = start_row + n_rows
                         n_rows = n_rows-1
 
+        
         elif self.ca_cbf['mode'] == 'ellipse':
             a, b = self.ca_cbf['major_axis'], self.ca_cbf['minor_axis']
+            norm_ab = np.sqrt(a[0]**2+b[0]**2)
 
-            # the following loop over waypoints is parallelizable
-            for i, wp in enumerate(waypoints):
+            if norm_ab <= 5000:
+                # the following loop over waypoints is parallelizable
+                for i, wp in enumerate(waypoints):
 
-                Ti = sched_mat[:,wp]
-                KTi1 = (Ti + Ti.reshape(-1,1))
-                KTi2 = (Ti - Ti.reshape(-1,1))
-                Hi_mat = (KTi1/a[wp])**2 + (KTi2/b[wp])**2 - 1
-                Hi_triu = np.triu_indices_from(Hi_mat, k=1)
-                H[:,i] = Hi_mat[Hi_triu]
+                    Ti = sched_mat[:,wp]
+                    KTi1 = (Ti + Ti.reshape(-1,1))
+                    KTi2 = (Ti - Ti.reshape(-1,1))
+                    Hi_mat = (KTi1*b[wp])**2 + (KTi2*a[wp])**2 - (a[wp]*b[wp])**2
+                    Hi_triu = np.triu_indices_from(Hi_mat, k=1)
+                    H[:,i] = Hi_mat[Hi_triu]
 
-                if returnGrad==True:
-                    # Compute gradient 
-                    start_row = 0 
-                    n_rows = Na-1 
-                    for j in range(Na-1): 
-                        Grad_H[i, start_row : start_row + n_rows, j] = 2*KTi1[j+1:, j]/a[wp]**2 + 2*KTi2[j+1:, j]/b[wp]**2 
-                        Grad_H[i, start_row : start_row + n_rows, j+1:] = np.diag(2*KTi1[j,j+1:]/a[wp]**2) + np.diag(2*KTi2[j,j+1:]/b[wp]**2) 
-                        start_row = start_row + n_rows 
-                        n_rows = n_rows-1
+                    if returnGrad==True:
+                        # Compute gradient 
+                        start_row = 0 
+                        n_rows = Na-1 
+                        for j in range(Na-1): 
+                            Grad_H[i, start_row : start_row + n_rows, j] = 2*KTi1[j+1:, j]*b[wp]**2 + 2*KTi2[j+1:, j]*a[wp]**2 
+                            Grad_H[i, start_row : start_row + n_rows, j+1:] = np.diag(2*KTi1[j,j+1:]*b[wp]**2) + np.diag(2*KTi2[j,j+1:]*a[wp]**2) 
+                            start_row = start_row + n_rows 
+                            n_rows = n_rows-1
+            else:
+                # the following loop over waypoints is parallelizable
+                for i, wp in enumerate(waypoints):
 
-        return H, Grad_H
+                    Ti = sched_mat[:,wp]
+                    KTi1 = (Ti + Ti.reshape(-1,1))
+                    KTi2 = (Ti - Ti.reshape(-1,1))
+                    Hi_mat = (KTi1/a[wp])**2 + (KTi2/b[wp])**2 - 1
+                    Hi_triu = np.triu_indices_from(Hi_mat, k=1)
+                    H[:,i] = Hi_mat[Hi_triu]
+
+                    if returnGrad==True:
+                        # Compute gradient 
+                        start_row = 0 
+                        n_rows = Na-1 
+                        for j in range(Na-1): 
+                            Grad_H[i, start_row : start_row + n_rows, j] = 2*KTi1[j+1:, j]/a[wp]**2 + 2*KTi2[j+1:, j]/b[wp]**2 
+                            Grad_H[i, start_row : start_row + n_rows, j+1:] = np.diag(2*KTi1[j,j+1:]/a[wp]**2) + np.diag(2*KTi2[j,j+1:]/b[wp]**2) 
+                            start_row = start_row + n_rows 
+                            n_rows = n_rows-1
+
+        return H, Grad_H 
 
 
     # ToDo: define CBF (and its gradient) for speed constraints
@@ -514,10 +537,11 @@ class MARS():
                     print(f'\tt:{t:.3e}\tdt:{dt:.4e}\tF:{F:.4f}\tFdot:{Fdot:.4f}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}')
                 break
             if verbose == 2:
-                # H, gradH = self.CBF_waypoints(T_next, self.active_waypoints, returnGrad=False)
-                Hmin = 0.0 #np.min(H)
+                H, gradH = self.CBF_waypoints(T_next, self.active_waypoints, returnGrad=False)
+                Hmin = np.min(H)
+                Hmax = np.max(H)
                 # print(f'\tt:{t:.3e}\tdt:{dt:.4e}\tF:{F:.4f}\tFdot:{Fdot:.4f}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}\n\tH:{H}')
-                print(f'\tt:{t:.3e}\tdt:{dt:.4e}\tF:{F:.4f}\tFdot:{Fdot:.4f}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}\tHmin:{Hmin}')
+                print(f'\tt:{t:.3e}\tdt:{dt:.4e}\tF:{F:.4f}\tFdot:{Fdot:.4f}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}\tHmin:{Hmin:.4f}\tHmax:{Hmax:.4f}')
             
             # Update variables for next iteration
             T_old = T_prev
@@ -546,8 +570,8 @@ class MARS():
 
         Tb = T0
         Vb = V0
-        ra = 0.1
-        rb = 1
+        ra = 0.01
+        rb = 0.1
 
         if optimizer['name'] == 'cbf_clf':
             dt_init         = optimizer['dt_init']
@@ -574,10 +598,14 @@ class MARS():
                 self.active_waypoints = active_waypoints
 
             if self.ca_cbf['mode'] == 'ellipse':
-                self.ca_cbf['major_axis'] = ra**2 / (ra**2 + 1) * np.ones(self.tolArray.shape) * 200
-                self.ca_cbf['minor_axis'] = rb**2 / (rb**2 + 1) * self.tolArray
+                if beta <= 1:
+                    self.ca_cbf['major_axis'] = ra**2 / (ra**2 + 1) * np.ones(self.tolArray.shape) * 400
+                    self.ca_cbf['minor_axis'] = rb**2 / (rb**2 + 1) * self.tolArray
+                else:
+                    self.ca_cbf['major_axis'] = ra**3 / (ra**3 + 1) * np.ones(self.tolArray.shape) * 400
+                    self.ca_cbf['minor_axis'] = rb**3 / (rb**3 + 1) * self.tolArray
                 ra = ra + 0.1
-                rb = rb + 0.0
+                rb = rb + 0.5
                 if annealPrint:
                     a, b = self.ca_cbf['major_axis'][0], self.ca_cbf['minor_axis'][0]
                     print(f'a:{a:.3f}\tb:{b:.3f}')
@@ -598,11 +626,12 @@ class MARS():
 
             total_cost = np.sum(self.agent_weights * self.C_agents)
 
-            # Hb, gradHb = self.CBF_waypoints(Tb, self.active_waypoints, returnGrad=False)
-            H_minb = 0.0 #np.min(Hb)
+            Hb, gradHb = self.CBF_waypoints(Tb, self.active_waypoints, returnGrad=False)
+            H_minb = np.min(Hb)
+            H_maxb = np.max(Hb)
             
             if annealPrint:
-                print(f'\nbeta: {beta:.4e}\tcost: {total_cost:.3f}\ttolb: {tolb:.3e}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}\tHminb:{H_minb:.2f}')
+                print(f'\nbeta: {beta:.4e}\tcost: {total_cost:.3f}\ttolb: {tolb:.3e}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}\tHminb:{H_minb:.2f}\tHmaxb:{H_maxb:.2f}')
 
         # compute final probability associations
         Pb_a = []
