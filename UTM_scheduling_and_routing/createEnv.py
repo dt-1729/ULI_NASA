@@ -26,6 +26,8 @@ class MARS():
         offset_energy       :bool,
         stagewiseCostCoeffs :np.ndarray,
         selfHop             :bool,
+        cost_mode           :str,
+        lm                  :float,
         ca_cbf              :str,
         printFlag           :bool
         ):
@@ -43,6 +45,8 @@ class MARS():
         self.printInitializationData(printFlag)
         self.active_waypoints = range(self.n_waypoints)
         self.ca_cbf = ca_cbf
+        self.cost_mode = cost_mode
+        self.lm = lm
 
     # function to create waypoints and the corresponding adjacency matrix
     def initWaypoints(self, wp_params:dict, seed:int):
@@ -166,21 +170,22 @@ class MARS():
         self, 
         sched_mat:np.ndarray, 
         speed_vec:np.ndarray, 
-        beta:float, 
-        allowPrint=False):
+        beta:float
+        ):
 
         C_arr = np.zeros(self.n_agents)
         for i in range(self.n_agents):
             v = self.agents[i]
             C_arr[i] = v.getFreeEnergy_s_v1(sched_mat[i,:], speed_vec[i], self.dist_mat, beta)
         self.C_agents = C_arr
+
+        if self.cost_mode == 'sum':
+            transport_cost = np.sum(self.agent_weights * C_arr)
+        elif self.cost_mode == 'slowest':
+            C_max = np.max(C_arr)
+            transport_cost = 1/self.lm * np.log(np.sum(np.exp(self.lm*(C_arr-C_max)))) + C_max
         
-        if allowPrint:
-            print('\nindividual agent costs:')
-            for i,v in enumerate(self.agents):
-                print(f'v{i+1}:\t{v.freeEnergy_s:.2f}')
-            print(f'sum: {self.C_agents}')
-        pass
+        return transport_cost
 
     # function to compute total node conflict cost
     def conflictCost(self, sched_mat:np.ndarray, gamma:float, coeff:float, filter_wp:np.ndarray, allowPrint=False):
@@ -292,79 +297,42 @@ class MARS():
 
         
         elif self.ca_cbf['mode'] == 'ellipse':
-            a, b = self.ca_cbf['major_axis'], self.ca_cbf['minor_axis']
-            norm_ab = np.sqrt(a[0]**2+b[0]**2)
+            a, b, n = self.ca_cbf['major_axis'], self.ca_cbf['minor_axis'], self.ca_cbf['degree']
 
-            if norm_ab <= 5000:
-                # the following loop over waypoints is parallelizable
-                for i, wp in enumerate(waypoints):
+            # the following loop over waypoints is parallelizable
+            for i, wp in enumerate(waypoints):
 
-                    Ti = sched_mat[:,wp]
-                    KTi1 = (Ti + Ti.reshape(-1,1))
-                    KTi2 = (Ti - Ti.reshape(-1,1))
-                    Hi_mat = (KTi1*b[wp])**2 + (KTi2*a[wp])**2 - (a[wp]*b[wp])**2
-                    Hi_triu = np.triu_indices_from(Hi_mat, k=1)
-                    H[:,i] = Hi_mat[Hi_triu]
+                Ti = sched_mat[:,wp]
+                KTi1 = (Ti + Ti.reshape(-1,1))
+                KTi2 = (Ti - Ti.reshape(-1,1))
+                Hi_mat = (np.abs(KTi1)*b[wp])**n + (np.abs(KTi2)*a[wp])**n - (a[wp]*b[wp])**n
+                Hi_triu = np.triu_indices_from(Hi_mat, k=1)
+                H[:,i] = Hi_mat[Hi_triu]
 
-                    if returnGrad==True:
-                        # Compute gradient 
-                        start_row = 0 
-                        n_rows = Na-1 
-                        for j in range(Na-1): 
-                            Grad_H[i, start_row : start_row + n_rows, j] = 2*KTi1[j+1:, j]*b[wp]**2 + 2*KTi2[j+1:, j]*a[wp]**2 
-                            Grad_H[i, start_row : start_row + n_rows, j+1:] = np.diag(2*KTi1[j,j+1:]*b[wp]**2) + np.diag(2*KTi2[j,j+1:]*a[wp]**2) 
-                            start_row = start_row + n_rows 
-                            n_rows = n_rows-1
-            else:
-                # the following loop over waypoints is parallelizable
-                for i, wp in enumerate(waypoints):
-
-                    Ti = sched_mat[:,wp]
-                    KTi1 = (Ti + Ti.reshape(-1,1))
-                    KTi2 = (Ti - Ti.reshape(-1,1))
-                    Hi_mat = (KTi1/a[wp])**2 + (KTi2/b[wp])**2 - 1
-                    Hi_triu = np.triu_indices_from(Hi_mat, k=1)
-                    H[:,i] = Hi_mat[Hi_triu]
-
-                    if returnGrad==True:
-                        # Compute gradient 
-                        start_row = 0 
-                        n_rows = Na-1 
-                        for j in range(Na-1): 
-                            Grad_H[i, start_row : start_row + n_rows, j] = 2*KTi1[j+1:, j]/a[wp]**2 + 2*KTi2[j+1:, j]/b[wp]**2 
-                            Grad_H[i, start_row : start_row + n_rows, j+1:] = np.diag(2*KTi1[j,j+1:]/a[wp]**2) + np.diag(2*KTi2[j,j+1:]/b[wp]**2) 
-                            start_row = start_row + n_rows 
-                            n_rows = n_rows-1
+                if returnGrad==True:
+                    # Compute gradient 
+                    start_row = 0 
+                    n_rows = Na-1 
+                    for j in range(Na-1): 
+                        if n%2 == 0:
+                            Grad_H[i, start_row : start_row + n_rows, j] = n*KTi1[j+1:, j]**(n-1)*b[wp]**n + n*KTi2[j+1:, j]**(n-1)*a[wp]**n 
+                            Grad_H[i, start_row : start_row + n_rows, j+1:] = np.diag(n*KTi1[j,j+1:]**(n-1)*b[wp]**n) + np.diag(n*KTi2[j,j+1:]**(n-1)*a[wp]**n) 
+                        else:
+                            Grad_H[i, start_row : start_row + n_rows, j] = n*KTi1[j+1:, j]**(n-1)*np.sign(KTi1[j+1:, j])*b[wp]**n + n*KTi2[j+1:, j]**(n-1)*np.sign(KTi2[j+1:, j])*a[wp]**n 
+                            Grad_H[i, start_row : start_row + n_rows, j+1:] = np.diag(n*KTi1[j,j+1:]**(n-1)*np.sign(KTi1[j,j+1:])*b[wp]**n) + np.diag(n*KTi2[j,j+1:]**(n-1)*np.sign(KTi2[j,j+1:])*a[wp]**n) 
+                        start_row = start_row + n_rows 
+                        n_rows = n_rows-1            
 
         return H, Grad_H 
 
 
-    # ToDo: define CBF (and its gradient) for speed constraints
     def CBF_agents(self, speed_vec):
         H = (speed_vec - self.speed_lim_mat[:,0])*(self.speed_lim_mat[:,1]-speed_vec)
         gradH = np.diag(self.speed_lim_mat.sum(axis=1) - 2 * speed_vec)
         return H, gradH
 
-    # def get_active_waypoints(self, sched_mat):
-    #     H, _ = self.CBF(sched_mat, range(self.n_waypoints), returnGrad=False)
-    #     A = np.ones(H.shape)
-    #     A[H>=0] = 0.0
-    #     rho = A.sum(axis=0)
-    #     active_waypoints = list(np.where(rho > 0)[0])
-    #     return active_waypoints
-
-    # def get_active_waypoints(self, filter_wp):
-    #     count = 0
-    #     active_waypoints = []
-    #     for i in range(self.n_waypoints):
-    #         if np.sum(filter_wp[:,i]) > 1:
-    #             active_waypoints.append(i)
-    #     active_waypoints = np.where(np.sum(filter_wp, axis=0)>=2)[0]
-    #     return active_waypoints
-
 
     def get_CBF_control(self, sched_mat, speed_vec, beta, gamma, alpha_s, alpha_c, alpha_r, alpha_q, p):
-
         Nw = self.n_waypoints
         Na = self.n_agents
         # control decision variables
@@ -372,10 +340,16 @@ class MARS():
         delta = cp.Variable(1)
 
         # get free energy and its dot
-        self.transportCost_v1(sched_mat, speed_vec, beta)
-        F = np.sum(self.agent_weights * self.C_agents)
+        F = self.transportCost_v1(sched_mat, speed_vec, beta)
+        # F = np.sum(self.agent_weights * self.C_agents)
         Grad_F = self.grad_transportCost_v1(sched_mat, speed_vec, beta)
-        F_dot = cp.sum(cp.multiply(self.agent_weights, cp.sum(cp.multiply(Grad_F, U), axis=1)))
+        if self.cost_mode == 'sum':
+            F_dot = cp.sum(cp.multiply(self.agent_weights, cp.sum(cp.multiply(Grad_F, U), axis=1)))
+        elif self.cost_mode == 'slowest':
+            C_arr_lm = self.lm * self.C_agents
+            C_arr_max = np.max(C_arr_lm)
+            weights1 = np.exp(C_arr_lm - C_arr_max) / np.sum(np.exp(C_arr_lm - C_arr_max))
+            F_dot = cp.sum(cp.multiply(weights1, cp.sum(cp.multiply(Grad_F, U), axis=1)))
 
         # speed speed cbf and its dot
         H_speed, Grad_H_speed = self.CBF_agents(speed_vec)
@@ -431,11 +405,7 @@ class MARS():
 
         # Solve the problem using OSQP with customized options
         result = problem.solve(solver = 'OSQP', **solver_options)
-        # print('inside get_CBF_control')
-        # print(alpha_c*H + H_dot.value)
-        # print(H_speed_dot.value + alpha_s * H_speed)
-        # print(F_dot.value + gamma * F - delta.value)
-        # print('\n')
+
         # Check the results
         if np.isnan(problem.value).any() == True:
             print("Nan encountered inside get_CBF_control!")
@@ -470,7 +440,59 @@ class MARS():
         computeTime = time.time() - t0
         return res.fun, res.x, computeTime
 
-    
+    # function to perform optimization iterations at a given beta
+    def optimize_slsqp_v1(
+        self, 
+        beta,
+        Tb, 
+        Vb, 
+        stop_tol,
+        disp):
+        
+        t0 = time.time()
+        Na = self.n_agents
+        Nw = self.n_waypoints
+        xb = np.concatenate((Tb.flatten(),Vb.flatten()))
+
+        # cost function
+        F = lambda x : self.transportCost_v1(x[0:Na*Nw].reshape(-1,Nw), x[Na*Nw:], beta)
+        gradF = lambda x : self.grad_transportCost_v1(x[0:Na*Nw].reshape(-1,Nw), x[Na*Nw:], beta)
+
+        # collision avoidance constraints
+        H = lambda x : self.CBF_waypoints(x[0:Na*Nw].reshape(-1,Nw), self.active_waypoints, returnGrad=False)[0]
+        gradH = lambda x : self.CBF_waypoints(x[0:Na*Nw].reshape(-1,Nw), self.active_waypoints, returnGrad=True)[1]
+
+        # collision avoidance inequality
+        collision_avoid_ineq = {'type':'ineq', 'fun':H, 'jac':gradH}
+
+        # pick agent start schedules and its dot
+        start_indices = np.array([[i, a.s] for i, a in enumerate(self.agents)])
+        tup_start_indices = (start_indices[:,0], start_indices[:,1])
+
+        # schedule bounds
+        lbT, ubT = -10*np.ones(Tb.shape), np.ones(Tb.shape)*self.T_upper_bound
+        lbT[tup_start_indices] = self.start_times
+
+        # bounds
+        lb = np.concatenate((lbT.flatten(),self.speed_lim_mat[:,0]))
+        ub = np.concatenate((ubT.flatten(),self.speed_lim_mat[:,1]))
+
+        res = minimize(
+            F, xb,
+            jac = gradF,
+            method='SLSQP',
+            constraints=[collision_avoid_ineq],
+            bounds = Bounds(lb, ub)
+            options={'disp':disp, 'ftol':stop_tol})
+
+        xb1 = res.x
+        Tb1 = xb1[0:Na*Nw].reshape(-1,Nw)
+        Vb1 = xb1[Na*Nw:]
+        cost_fun = res.fun
+        computeTime = time.time() - t0
+        return Tb1, Vb1, cost_fun, computeTime
+
+    # optimize at given beta using CBF CLF
     def CBF_CLF_at_beta(
         self,
         beta, 
@@ -588,6 +610,11 @@ class MARS():
             stop_tol_weight = optimizer['stop_tol_weight']
             verbose         = optimizer['verbose']
 
+        elif optimizer['name'] == 'SLSQP':
+            stop_tol        = optimizer['stop_tol']
+            disp            = optimizer['disp']
+
+
         for beta in beta_arr:
             if active_waypoints is None:
                 reach_mat = self.calc_agent_reach_mat_v1(Tb, Vb, beta)
@@ -623,15 +650,21 @@ class MARS():
                     stop_tol=stop_tol, 
                     stop_tol_weight=stop_tol_weight/np.sum(stop_tol_weight), 
                     verbose=verbose)
+                Hb, gradHb = self.CBF_waypoints(Tb, self.active_waypoints, returnGrad=False)
+                H_minb = np.min(Hb)
+                H_maxb = np.max(Hb)
+                if annealPrint:
+                    print(f'\nbeta: {beta:.4e}\tcost: {Fb:.3f}\ttolb: {tolb:.3e}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}\tHminb:{H_minb:.2f}\tHmaxb:{H_maxb:.2f}')
 
-            total_cost = np.sum(self.agent_weights * self.C_agents)
-
-            Hb, gradHb = self.CBF_waypoints(Tb, self.active_waypoints, returnGrad=False)
-            H_minb = np.min(Hb)
-            H_maxb = np.max(Hb)
-            
-            if annealPrint:
-                print(f'\nbeta: {beta:.4e}\tcost: {total_cost:.3f}\ttolb: {tolb:.3e}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}\tHminb:{H_minb:.2f}\tHmaxb:{H_maxb:.2f}')
+            elif optimizer['name'] == 'SLSQP':
+                Tb, Vb, Fb, compute_time = self.optimize_slsqp_v1(
+                    beta, Tb, Vb, stop_tol, disp
+                )
+                Hb, gradHb = self.CBF_waypoints(Tb, self.active_waypoints, returnGrad=False)
+                H_minb = np.min(Hb)
+                H_maxb = np.max(Hb)
+                if annealPrint:
+                    print(f'\nbeta: {beta:.4e}\tcost: {Fb:.3f}\ttol_mag:{self.tolArray[0]:.2f}\tHminb:{H_minb:.2f}\tHmaxb:{H_maxb:.2f}')
 
         # compute final probability associations
         Pb_a = []
@@ -844,8 +877,7 @@ def show_solution_table(mars:MARS, Pb_a:list, beta:float, printRoutes=False):
     mars.transportCost_v1(
         mars.sched_mat, 
         mars.speed_vec, 
-        beta=beta, 
-        allowPrint=False) 
+        beta=beta) 
 
     for i, a in enumerate(mars.agents):
         a.calc_route_and_schedule(sched=mars.sched_mat[i,:], dist_mat=mars.dist_mat, Pb=Pb_a[i])
