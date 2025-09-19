@@ -294,7 +294,6 @@ class MARS():
                         Grad_H[i, start_row : start_row + n_rows, j+1:] = np.diag(2*KTi[j,j+1:])
                         start_row = start_row + n_rows
                         n_rows = n_rows-1
-
         
         elif self.ca_cbf['mode'] == 'ellipse':
             a, b, n = self.ca_cbf['major_axis'], self.ca_cbf['minor_axis'], self.ca_cbf['degree']
@@ -459,30 +458,31 @@ class MARS():
         gradF = lambda x : self.grad_transportCost_v1(x[0:Na*Nw].reshape(-1,Nw), x[Na*Nw:], beta)
 
         # collision avoidance constraints
-        H = lambda x : self.CBF_waypoints(x[0:Na*Nw].reshape(-1,Nw), self.active_waypoints, returnGrad=False)[0]
-        gradH = lambda x : self.CBF_waypoints(x[0:Na*Nw].reshape(-1,Nw), self.active_waypoints, returnGrad=True)[1]
+        H = lambda x : self.CBF_waypoints(x[0:Na*Nw].reshape(-1,Nw), self.active_waypoints, returnGrad=False)[0].flatten()
+        # gradH = lambda x : self.CBF_waypoints(x[0:Na*Nw].reshape(-1,Nw), self.active_waypoints, returnGrad=True)[1].reshape(1,-1)
 
         # collision avoidance inequality
-        collision_avoid_ineq = {'type':'ineq', 'fun':H, 'jac':gradH}
+        # collision_avoid_ineq = {'type':'ineq', 'fun':H, 'jac':gradH}
+        collision_avoid_ineq = {'type':'ineq', 'fun':H}
 
         # pick agent start schedules and its dot
         start_indices = np.array([[i, a.s] for i, a in enumerate(self.agents)])
         tup_start_indices = (start_indices[:,0], start_indices[:,1])
 
         # schedule bounds
-        lbT, ubT = -10*np.ones(Tb.shape), np.ones(Tb.shape)*self.T_upper_bound
+        lbT, ubT = -np.inf*np.ones(Tb.shape), np.ones(Tb.shape)*self.T_upper_bound
         lbT[tup_start_indices] = self.start_times
 
         # bounds
-        lb = np.concatenate((lbT.flatten(),self.speed_lim_mat[:,0]))
-        ub = np.concatenate((ubT.flatten(),self.speed_lim_mat[:,1]))
-
+        lb = np.concatenate((lbT.flatten(), self.speed_lim_mat[:,0]))
+        ub = np.concatenate((ubT.flatten(), self.speed_lim_mat[:,1]))
+        # print(F(xb), gradF(xb).shape, xb.shape, lb.shape, ub.shape, H(xb).shape, gradH(xb).shape)
         res = minimize(
             F, xb,
-            jac = gradF,
+            # jac = gradF,
             method='SLSQP',
             constraints=[collision_avoid_ineq],
-            bounds = Bounds(lb, ub)
+            bounds = Bounds(lb, ub),
             options={'disp':disp, 'ftol':stop_tol})
 
         xb1 = res.x
