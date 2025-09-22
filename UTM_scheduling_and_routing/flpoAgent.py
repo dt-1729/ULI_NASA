@@ -250,19 +250,25 @@ class flpoAgent():
         reach_array[self.s] = 1.0
         return reach_array
 
-    def calc_agent_wp_association(self, Pb):
-        Pb_togo_flip = [0]*(self.stageHorizon+1)
-        Pb_reach = [0]*(self.stageHorizon+1)
-        Pb_flip = Pb[::-1]
-        for i in range(self.stageHorizon+1):
-            if i==0:
-                Pb_togo_flip[i] = np.array([1.0]) # probability of reaching destination is 1
-                Pb_reach[i] = np.array([1.0])
-            else:
-                Pb_togo_flip[i] = np.dot(Pb_flip[i-1],Pb_togo_flip[i-1])
-                Pb_reach[i] = np.dot(np.transpose(Pb[i-1]),Pb_reach[i-1])
 
-        return Pb_togo_flip[::-1], Pb_reach
+    def calc_agent_wp_association(self, Pb):
+        Nw = self.n_wp
+        K = self.stageHorizon
+        Pb_nogo_flip = [0]*K
+        Pb_reach_flip = [0]*K
+        Pb_flip = Pb[::-1]
+        for i in range(K):
+            if i==0:
+                Pb_nogo_flip[i] = np.ones((Nw,Nw)) #- np.eye(Nw)
+                Pb_nogo_flip[i][:,self.d] = np.zeros(Nw)
+            elif i==K-1:
+                Pb_nogo_flip[i] = np.dot(Pb_flip[i], Pb_nogo_flip[i-1]) - Pb_flip[i]*Pb_nogo_flip[i-1][self.s,:]
+            else:
+                Pb_nogo_flip[i] = np.dot(Pb_flip[i], Pb_nogo_flip[i-1]) - Pb_flip[i]*Pb_nogo_flip[i-1]
+            
+            Pb_reach_flip[i] = 1.0 - Pb_nogo_flip[i]
+
+        return Pb_reach_flip[::-1]
 
 
     def calc_route_and_schedule(self, sched, dist_mat, Pb):
