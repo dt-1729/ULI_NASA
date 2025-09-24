@@ -259,14 +259,16 @@ class flpoAgent():
         Pb_flip = Pb[::-1]
         for i in range(K):
             if i==0:
-                Pb_nogo_flip[i] = np.ones((Nw,Nw)) #- np.eye(Nw)
+                Pb_nogo_flip[i] = np.ones((Nw,Nw))
                 Pb_nogo_flip[i][:,self.d] = np.zeros(Nw)
-            elif i==K-1:
-                Pb_nogo_flip[i] = np.dot(Pb_flip[i], Pb_nogo_flip[i-1]) - Pb_flip[i]*Pb_nogo_flip[i-1][self.s,:]
+            # elif i==K-1:
+            #     Pb_nogo_flip[i] = np.dot(Pb_flip[i], Pb_nogo_flip[i-1]) - Pb_flip[i]*np.diag(Pb_nogo_flip[i-1])
             else:
-                Pb_nogo_flip[i] = np.dot(Pb_flip[i], Pb_nogo_flip[i-1]) - Pb_flip[i]*Pb_nogo_flip[i-1]
+                Pb_nogo_flip[i] = np.dot(Pb_flip[i], Pb_nogo_flip[i-1]) - np.dot(Pb_flip[i],(Pb_nogo_flip[i-1]*np.eye(Nw)))
             
             Pb_reach_flip[i] = 1.0 - Pb_nogo_flip[i]
+
+        Pb_reach_flip[-1][0,self.s] = 1.0
 
         return Pb_reach_flip[::-1]
 

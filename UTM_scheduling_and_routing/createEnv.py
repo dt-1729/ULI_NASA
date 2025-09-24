@@ -13,7 +13,7 @@ from matplotlib.cm import get_cmap
 import cvxpy as cp
 from tabulate import tabulate
 
-# create a multiagent scheduling and routing class
+# create a multiagent routing and scheduling class
 class MARS():
 
     def __init__(
@@ -29,6 +29,7 @@ class MARS():
         cost_mode           :str,
         lm                  :float,
         ca_cbf              :str,
+        filter_wp_thresh    :float,
         printFlag           :bool
         ):
 
@@ -47,6 +48,7 @@ class MARS():
         self.ca_cbf = ca_cbf
         self.cost_mode = cost_mode
         self.lm = lm
+        self.filter_wp_thresh = filter_wp_thresh
 
     # function to create waypoints and the corresponding adjacency matrix
     def initWaypoints(self, wp_params:dict, seed:int):
@@ -81,9 +83,9 @@ class MARS():
         self.speed_vec = self.speed_lim_mat.mean(axis=1)
         max_time = np.max(cdist(self.wp_locations, self.wp_locations, 'euclidean'))/np.min(min_speeds)
         self.sched_mat = np.random.uniform(0.0, 50.0, (na, nw))
-        self.start_times = np.random.uniform(0.0, 5.0, na)*0
+        self.start_times = np.random.uniform(0.0, 50.0, na)
         self.sched_mat[np.arange(na),self.sd_mat[:,0]] = self.start_times
-        self.T_upper_bound = 200 
+        self.T_upper_bound = 500 
         self.process_T = np.random.uniform(3,5,(na, nw))*0 
         self.process_T[np.arange(na),self.sd_mat[:,1]] = np.zeros(na)
         np.random.seed(None)
@@ -138,7 +140,7 @@ class MARS():
         reach_mat = []
         for i,ag in enumerate(self.agents):
             Pb = ag.getPathAssociations_v1(sched_mat[i,:], speed_vec[i], self.dist_mat, beta)
-            ag_reach = ag.calc_probability_of_reach(Pb)
+            ag_reach = ag.calc_agent_wp_association(Pb)[0][0]
             reach_mat.append(ag_reach)
         return np.array(reach_mat)
 
@@ -331,7 +333,7 @@ class MARS():
         return H, gradH
 
 
-    def get_CBF_control(self, sched_mat, speed_vec, beta, gamma, alpha_s, alpha_c, alpha_r, alpha_q, p):
+    def get_CBF_control(self, sched_mat, speed_vec, weight_mat, beta, gamma, alpha_s, alpha_c, alpha_r, alpha_q, p):
         Nw = self.n_waypoints
         Na = self.n_agents
         # control decision variables
@@ -361,6 +363,8 @@ class MARS():
         # pick agent start schedules and its dot
         start_indices = np.array([[i, a.s] for i, a in enumerate(self.agents)])
         tup_start_indices = (start_indices[:,0], start_indices[:,1])
+        # # pick dropped indices
+        # dropped_indices = np.where(weight_mat <= self.filter_wp_thresh)
 
         # bypass CBF constraint if no waypoint is active
         if self.active_waypoints == [] or self.active_waypoints == None:
@@ -369,7 +373,7 @@ class MARS():
                 H_speed_dot >= -alpha_s * H_speed, # speed limit constraint
                 U[tup_start_indices] >= -alpha_r * (sched_mat[tup_start_indices]-self.start_times), # to maintain time-positivity
                 U[:,:-1] <= alpha_q * (self.T_upper_bound - sched_mat) # to maintain the schedule bounded
-                # U[tup_start_indices] == 0.0 * (sched_mat[tup_start_indices]) # to maintain time-positivity
+                # U[dropped_indices] == 0.0 # no control for unvisited nodes
             ]
         else:
             # get collision avoidance CBF and its dot
@@ -387,14 +391,14 @@ class MARS():
                 H_dot >= -alpha_c * H, # collision avoidance constraint
                 U[tup_start_indices] >= -alpha_r * (sched_mat[tup_start_indices]-self.start_times), # to maintain time-positivity
                 U[:,:-1] <= alpha_q * (self.T_upper_bound - sched_mat) # to maintain the schedule bounded
-                # U[tup_start_indices] == 0.0 * (sched_mat[tup_start_indices]) # to maintain time-positivity
+                # U[dropped_indices] == 0.0 # no control for unvisited nodes
             ]
 
         problem = cp.Problem(objective, constraints)
 
         # Solver Options for OSQP
         solver_options = {
-            'max_iter': 200000,         # Increase max iterations to 20000
+            'max_iter': 50000,         # Increase max iterations to 20000
             'eps_abs': 1e-3,           # Adjust absolute tolerance
             'eps_rel': 1e-3,           # Adjust relative tolerance
             'eps_prim_inf': 1e-2,      # Adjust primal infeasibility tolerance
@@ -426,7 +430,6 @@ class MARS():
         cost_fun = res.fun
         computeTime = time.time() - t0
         return res.fun, res.x, computeTime
-
 
     # function to perform optimization iterations at a given beta
     def optimize_schedule_trust_constr_v1(self, init_sched_vec0, beta, gamma_c, coeff_c, filter_wp, bds, opts, allowPrintOptimize=False):
@@ -520,10 +523,11 @@ class MARS():
         t = 0.0
         iter_count = 0
         F_prev = 1.0
+        weight_mat = self.calc_agent_reach_mat_v1(T_prev, V_prev, beta)
+
         while t < Tf:
             # get control
-            U, F, Fdot, delta = self.get_CBF_control(T_prev, V_prev, beta, gamma, alpha_s, alpha_c, alpha_r, alpha_q, p)
-            H, GradH = self.CBF_waypoints(T_prev, self.active_waypoints, returnGrad=True)
+            U, F, Fdot, delta = self.get_CBF_control(T_prev, V_prev, weight_mat, beta, gamma, alpha_s, alpha_c, alpha_r, alpha_q, p)
 
             if None in (F, Fdot, delta):
                 print('None encountered from get_CBF_control... returning previous iterate!')
@@ -548,10 +552,10 @@ class MARS():
             else:
                 theta = 1.0
 
-            tol_T = np.max(np.abs(T_next-T_prev)) #/np.max(np.abs(T_next))
-            tol_V = np.max(np.abs(V_next-V_prev))
-            tol_F = np.abs(F - F_prev)
-            tol_Fdot = abs(Fdot * dt)
+            tol_T = np.max(np.abs(T_next-T_prev))/np.max(np.abs(T_next))
+            tol_V = np.max(np.abs(V_next-V_prev))/np.max(np.abs(V_next))
+            tol_F = np.abs(F - F_prev)/np.abs(F_prev)
+            tol_Fdot = abs(Fdot * dt)/np.abs(F_prev)
             stop_tol_weight = stop_tol_weight/np.sum(stop_tol_weight)
             tol = np.sum(stop_tol_weight * np.array([tol_T, tol_V, tol_F, tol_Fdot]))
             if tol < stop_tol:
@@ -559,11 +563,7 @@ class MARS():
                     print(f'\tt:{t:.3e}\tdt:{dt:.4e}\tF:{F:.4f}\tFdot:{Fdot:.4f}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}')
                 break
             if verbose == 2:
-                H, gradH = self.CBF_waypoints(T_next, self.active_waypoints, returnGrad=False)
-                Hmin = np.min(H)
-                Hmax = np.max(H)
-                # print(f'\tt:{t:.3e}\tdt:{dt:.4e}\tF:{F:.4f}\tFdot:{Fdot:.4f}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}\n\tH:{H}')
-                print(f'\tt:{t:.3e}\tdt:{dt:.4e}\tF:{F:.4f}\tFdot:{Fdot:.4f}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}\tHmin:{Hmin:.4f}\tHmax:{Hmax:.4f}')
+                print(f'\tt:{t:.3e}\tdt:{dt:.4e}\tF:{F:.4f}\tFdot:{Fdot:.4f}\tdelta:{delta[0]:.4f}\ttol:{tol:.3e}')
             
             # Update variables for next iteration
             T_old = T_prev
@@ -592,8 +592,8 @@ class MARS():
 
         Tb = T0
         Vb = V0
-        ra = 0.01
-        rb = 0.1
+        ra = 0.001
+        rb = 0.01
 
         if optimizer['name'] == 'cbf_clf':
             dt_init         = optimizer['dt_init']
@@ -619,7 +619,7 @@ class MARS():
             if active_waypoints is None:
                 reach_mat = self.calc_agent_reach_mat_v1(Tb, Vb, beta)
                 filter_wp = np.ones(reach_mat.shape)
-                filter_wp[reach_mat <= 1e-10] = 0.0
+                filter_wp[reach_mat <= self.filter_wp_thresh] = 0.0
                 self.active_waypoints = list(np.where(np.sum(filter_wp, axis=0)>=2)[0])
             else:
                 self.active_waypoints = active_waypoints
@@ -632,7 +632,7 @@ class MARS():
                     self.ca_cbf['major_axis'] = ra**3 / (ra**3 + 1) * np.ones(self.tolArray.shape) * 400
                     self.ca_cbf['minor_axis'] = rb**3 / (rb**3 + 1) * self.tolArray
                 ra = ra + 0.1
-                rb = rb + 0.5
+                rb = rb + 0.8
                 if annealPrint:
                     a, b = self.ca_cbf['major_axis'][0], self.ca_cbf['minor_axis'][0]
                     print(f'a:{a:.3f}\tb:{b:.3f}')
@@ -651,20 +651,15 @@ class MARS():
                     stop_tol_weight=stop_tol_weight/np.sum(stop_tol_weight), 
                     verbose=verbose)
                 Hb, gradHb = self.CBF_waypoints(Tb, self.active_waypoints, returnGrad=False)
-                H_minb = np.min(Hb)
-                H_maxb = np.max(Hb)
                 if annealPrint:
-                    print(f'\nbeta: {beta:.4e}\tcost: {Fb:.3f}\ttolb: {tolb:.3e}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}\tHminb:{H_minb:.2f}\tHmaxb:{H_maxb:.2f}')
+                    print(f'\nbeta: {beta:.4e}\tcost: {Fb:.3f}\ttolb: {tolb:.3e}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}')
 
             elif optimizer['name'] == 'SLSQP':
                 Tb, Vb, Fb, compute_time = self.optimize_slsqp_v1(
                     beta, Tb, Vb, stop_tol, disp
                 )
-                Hb, gradHb = self.CBF_waypoints(Tb, self.active_waypoints, returnGrad=False)
-                H_minb = np.min(Hb)
-                H_maxb = np.max(Hb)
                 if annealPrint:
-                    print(f'\nbeta: {beta:.4e}\tcost: {Fb:.3f}\ttol_mag:{self.tolArray[0]:.2f}\tHminb:{H_minb:.2f}\tHmaxb:{H_maxb:.2f}')
+                    print(f'\nbeta: {beta:.4e}\tcost: {Fb:.3f}\ttol_mag:{self.tolArray[0]:.2f}')
 
         # compute final probability associations
         Pb_a = []
