@@ -326,6 +326,73 @@ class MARS():
 
         return H, Grad_H 
 
+    def CBF_waypoints_v1(self, sched_mat, waypoints, filter_wp, returnGrad=True):
+        Nw = len(waypoints)
+        Na = self.n_agents
+
+        # define gradient as a 3D tensor
+        H = np.array([])
+        Grad_H = np.array([[]])
+
+        if self.ca_cbf['mode'] == 'linear':
+            eps = self.ca_cbf['eps']
+            # the following loop over waypoints is parallelizable
+            for i, wp in enumerate(waypoints):
+                n_active_agents = sum(filter_wp[:,wp])
+                if n_active_agents > 1:
+                    Ti = sched_mat[:,wp] 
+                    KTi = Ti - Ti.reshape(-1,1)
+                    Hi_mat = KTi**2
+                    if n_active_agents > 2:
+                        Hi_triu = np.triu_indices_from(Hi_mat, k=1)
+                        H = np.concatenate((H,Hi_mat[Hi_triu]))
+                    else:
+                        H = np.concatenate((H,Hi_mat))
+
+                    if returnGrad==True:
+                        # Compute gradient
+                        start_row = 0
+                        n_rows = n_active_agents
+                        for j in range(Na-1):
+                            Grad_Hi[start_row : start_row + n_rows, j] = 2*KTi[j+1:, j]
+                            Grad_Hi[start_row : start_row + n_rows, j+1:] = np.diag(2*KTi[j,j+1:])
+                            start_row = start_row + n_rows
+                            n_rows = n_rows-1
+                    Grad_H = np.concatenate((Grad_H, Grad_Hi),axis=0)    
+        
+        elif self.ca_cbf['mode'] == 'ellipse':
+            a, b, n = self.ca_cbf['major_axis'], self.ca_cbf['minor_axis'], self.ca_cbf['degree']
+
+            # the following loop over waypoints is parallelizable
+            for i, wp in enumerate(waypoints):
+                n_active_agents = sum(filter_wp[:,wp])
+                if n_active_agents > 1:
+                    Ti = sched_mat[:,wp][filter_wp[:,wp]==1.0]
+                    KTi1 = (Ti + Ti.reshape(-1,1))
+                    KTi2 = (Ti - Ti.reshape(-1,1))
+                    Hi_mat = (np.abs(KTi1)*b[wp])**n + (np.abs(KTi2)*a[wp])**n - (a[wp]*b[wp])**n
+                    if n_active_agents > 2:
+                        Hi_triu = np.triu_indices_from(Hi_mat, k=1)
+                        H = np.concatenate((H,Hi_mat[Hi_triu]))
+                    else:
+                        H = np.concatenate((H,Hi_mat))
+                    
+                    if returnGrad==True:
+                        start_row = 0
+                        n_rows = n_active_agents-1
+                        for j in range(n_active_agents-1):
+                            if n%2 == 0:
+                                Grad_Hi[start_row : start_row + n_rows, j] = n*KTi1[j+1:, j]**(n-1)*b[wp]**n + n*KTi2[j+1:, j]**(n-1)*a[wp]**n 
+                                Grad_Hi[start_row : start_row + n_rows, j+1:] = np.diag(n*KTi1[j,j+1:]**(n-1)*b[wp]**n) + np.diag(n*KTi2[j,j+1:]**(n-1)*a[wp]**n) 
+                            else:
+                                Grad_Hi[start_row : start_row + n_rows, j] = n*KTi1[j+1:, j]**(n-1)*np.sign(KTi1[j+1:, j])*b[wp]**n + n*KTi2[j+1:, j]**(n-1)*np.sign(KTi2[j+1:, j])*a[wp]**n 
+                                Grad_Hi[start_row : start_row + n_rows, j+1:] = np.diag(n*KTi1[j,j+1:]**(n-1)*np.sign(KTi1[j,j+1:])*b[wp]**n) + np.diag(n*KTi2[j,j+1:]**(n-1)*np.sign(KTi2[j,j+1:])*a[wp]**n) 
+                            start_row = start_row + n_rows 
+                            n_rows = n_rows-1            
+                        Grad_H = np.concatenate((Grad_H, Grad_Hi),axis=0)
+
+        return H, Grad_H
+
 
     def CBF_agents(self, speed_vec):
         H = (speed_vec - self.speed_lim_mat[:,0])*(self.speed_lim_mat[:,1]-speed_vec)
@@ -650,7 +717,6 @@ class MARS():
                     stop_tol=stop_tol, 
                     stop_tol_weight=stop_tol_weight/np.sum(stop_tol_weight), 
                     verbose=verbose)
-                Hb, gradHb = self.CBF_waypoints(Tb, self.active_waypoints, returnGrad=False)
                 if annealPrint:
                     print(f'\nbeta: {beta:.4e}\tcost: {Fb:.3f}\ttolb: {tolb:.3e}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}')
 
