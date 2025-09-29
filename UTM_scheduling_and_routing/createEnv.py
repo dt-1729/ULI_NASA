@@ -332,63 +332,64 @@ class MARS():
 
         # define gradient as a 3D tensor
         H = np.array([])
-        Grad_H = np.array([[]])
+        Grad_H = np.empty((0,Na))
 
-        if self.ca_cbf['mode'] == 'linear':
-            eps = self.ca_cbf['eps']
-            # the following loop over waypoints is parallelizable
-            for i, wp in enumerate(waypoints):
-                n_active_agents = sum(filter_wp[:,wp])
-                if n_active_agents > 1:
-                    Ti = sched_mat[:,wp] 
-                    KTi = Ti - Ti.reshape(-1,1)
-                    Hi_mat = KTi**2
-                    if n_active_agents > 2:
-                        Hi_triu = np.triu_indices_from(Hi_mat, k=1)
-                        H = np.concatenate((H,Hi_mat[Hi_triu]))
-                    else:
-                        H = np.concatenate((H,Hi_mat))
+        # if self.ca_cbf['mode'] == 'linear':
+        #     eps = self.ca_cbf['eps']
+        #     # the following loop over waypoints is parallelizable
+        #     for i, wp in enumerate(waypoints):
+        #         n_active_agents = sum(filter_wp[:,wp])
+        #         if n_active_agents > 1:
+        #             Ti = sched_mat[:,wp] 
+        #             KTi = Ti - Ti.reshape(-1,1)
+        #             Hi_mat = KTi**2
+        #             if n_active_agents > 2:
+        #                 Hi_triu = np.triu_indices_from(Hi_mat, k=1)
+        #                 H = np.concatenate((H,Hi_mat[Hi_triu]))
+        #             else:
+        #                 H = np.concatenate((H,Hi_mat))
 
-                    if returnGrad==True:
-                        # Compute gradient
-                        start_row = 0
-                        n_rows = n_active_agents
-                        for j in range(Na-1):
-                            Grad_Hi[start_row : start_row + n_rows, j] = 2*KTi[j+1:, j]
-                            Grad_Hi[start_row : start_row + n_rows, j+1:] = np.diag(2*KTi[j,j+1:])
-                            start_row = start_row + n_rows
-                            n_rows = n_rows-1
-                    Grad_H = np.concatenate((Grad_H, Grad_Hi),axis=0)    
+        #             if returnGrad==True:
+        #                 # Compute gradient
+        #                 start_row = 0
+        #                 n_rows = n_active_agents
+        #                 Grad_Hi = np.zeros((n_active_agents * (n_active_agents-1)//2, n_active_agents))
+        #                 for j in range(n_active_agents-1):
+        #                     Grad_Hi[start_row : start_row + n_rows, j] = 2*KTi[j+1:, j]
+        #                     Grad_Hi[start_row : start_row + n_rows, j+1:] = np.diag(2*KTi[j,j+1:])
+        #                     start_row = start_row + n_rows
+        #                     n_rows = n_rows-1
+        #             Grad_H = np.concatenate((Grad_H, Grad_Hi),axis=0)    
         
-        elif self.ca_cbf['mode'] == 'ellipse':
+        if self.ca_cbf['mode'] == 'ellipse':
             a, b, n = self.ca_cbf['major_axis'], self.ca_cbf['minor_axis'], self.ca_cbf['degree']
 
             # the following loop over waypoints is parallelizable
             for i, wp in enumerate(waypoints):
-                n_active_agents = sum(filter_wp[:,wp])
+                n_active_agents = int(sum(filter_wp[:,wp]))
                 if n_active_agents > 1:
                     Ti = sched_mat[:,wp][filter_wp[:,wp]==1.0]
                     KTi1 = (Ti + Ti.reshape(-1,1))
                     KTi2 = (Ti - Ti.reshape(-1,1))
                     Hi_mat = (np.abs(KTi1)*b[wp])**n + (np.abs(KTi2)*a[wp])**n - (a[wp]*b[wp])**n
-                    if n_active_agents > 2:
-                        Hi_triu = np.triu_indices_from(Hi_mat, k=1)
-                        H = np.concatenate((H,Hi_mat[Hi_triu]))
-                    else:
-                        H = np.concatenate((H,Hi_mat))
+                    Hi_triu = np.triu_indices_from(Hi_mat, k=1)
+                    H = np.concatenate((H,Hi_mat[Hi_triu]))
                     
                     if returnGrad==True:
                         start_row = 0
                         n_rows = n_active_agents-1
+                        Grad_Hi = np.zeros((n_active_agents * (n_active_agents-1)//2, Na))
+                        temp_grad = np.zeros((n_active_agents * (n_active_agents-1)//2, n_active_agents))
                         for j in range(n_active_agents-1):
                             if n%2 == 0:
-                                Grad_Hi[start_row : start_row + n_rows, j] = n*KTi1[j+1:, j]**(n-1)*b[wp]**n + n*KTi2[j+1:, j]**(n-1)*a[wp]**n 
-                                Grad_Hi[start_row : start_row + n_rows, j+1:] = np.diag(n*KTi1[j,j+1:]**(n-1)*b[wp]**n) + np.diag(n*KTi2[j,j+1:]**(n-1)*a[wp]**n) 
+                                temp_grad[start_row : start_row + n_rows, j] = n*KTi1[j+1:, j]**(n-1)*b[wp]**n + n*KTi2[j+1:, j]**(n-1)*a[wp]**n 
+                                temp_grad[start_row : start_row + n_rows, j+1:] = np.diag(n*KTi1[j,j+1:]**(n-1)*b[wp]**n) + np.diag(n*KTi2[j,j+1:]**(n-1)*a[wp]**n) 
                             else:
-                                Grad_Hi[start_row : start_row + n_rows, j] = n*KTi1[j+1:, j]**(n-1)*np.sign(KTi1[j+1:, j])*b[wp]**n + n*KTi2[j+1:, j]**(n-1)*np.sign(KTi2[j+1:, j])*a[wp]**n 
-                                Grad_Hi[start_row : start_row + n_rows, j+1:] = np.diag(n*KTi1[j,j+1:]**(n-1)*np.sign(KTi1[j,j+1:])*b[wp]**n) + np.diag(n*KTi2[j,j+1:]**(n-1)*np.sign(KTi2[j,j+1:])*a[wp]**n) 
+                                temp_grad[start_row : start_row + n_rows, j] = n*KTi1[j+1:, j]**(n-1)*np.sign(KTi1[j+1:, j])*b[wp]**n + n*KTi2[j+1:, j]**(n-1)*np.sign(KTi2[j+1:, j])*a[wp]**n 
+                                temp_grad[start_row : start_row + n_rows, j+1:] = np.diag(n*KTi1[j,j+1:]**(n-1)*np.sign(KTi1[j,j+1:])*b[wp]**n) + np.diag(n*KTi2[j,j+1:]**(n-1)*np.sign(KTi2[j,j+1:])*a[wp]**n) 
                             start_row = start_row + n_rows 
-                            n_rows = n_rows-1            
+                            n_rows = n_rows-1    
+                        Grad_Hi[:, filter_wp[:,wp]==1.0] = temp_grad
                         Grad_H = np.concatenate((Grad_H, Grad_Hi),axis=0)
 
         return H, Grad_H
@@ -406,6 +407,8 @@ class MARS():
         # control decision variables
         U = cp.Variable((Na, Nw+1))
         delta = cp.Variable(1)
+        filter_wp = np.ones(weight_mat.shape)
+        filter_wp[weight_mat <= self.filter_wp_thresh] = 0.0
 
         # get free energy and its dot
         F = self.transportCost_v1(sched_mat, speed_vec, beta)
@@ -444,13 +447,28 @@ class MARS():
             ]
         else:
             # get collision avoidance CBF and its dot
-            H, Grad_H = self.CBF_waypoints(sched_mat, self.active_waypoints, returnGrad=True)
+            # H, Grad_H = self.CBF_waypoints(sched_mat, self.active_waypoints, returnGrad=True)
+            # H_dot_list = []
+            # for i, wp in enumerate(self.active_waypoints):
+            #     H_dot_list.append(
+            #         cp.sum(cp.multiply(Grad_H[i], cp.reshape(U[:,wp], (1,Na), order='C')), axis=1, keepdims=True)
+            #     )
+            # H_dot = cp.hstack(H_dot_list) # Na(Na+1)/2 x Nw
+
+            H, Grad_H = self.CBF_waypoints_v1(sched_mat, self.active_waypoints, filter_wp, returnGrad=True)
             H_dot_list = []
-            for i, wp in enumerate(self.active_waypoints):
-                H_dot_list.append(
-                    cp.sum(cp.multiply(Grad_H[i], cp.reshape(U[:,wp], (1,Na), order='C')), axis=1, keepdims=True)
-                )
-            H_dot = cp.hstack(H_dot_list) # Na(Na+1)/2 x Nw
+            cnt = 0
+            for wp in self.active_waypoints:
+                n_active_agents = int(np.sum(filter_wp[:,wp]))
+                if n_active_agents > 1:
+                    n_conflicts = n_active_agents * (n_active_agents-1) // 2
+                    # print(Grad_H[cnt:cnt+n_conflicts])
+                    H_dot_list.append(
+                        cp.sum(cp.multiply(Grad_H[cnt:cnt+n_conflicts], cp.reshape(U[:,wp], (1,Na), order='C')), axis=1, keepdims=True)
+                    )
+                    cnt += n_conflicts
+            H_dot = cp.vstack(H_dot_list) 
+            H_dot = cp.reshape(H_dot, (-1,), order='C')
 
             constraints = [
                 F_dot <= -gamma * F + delta, # decrease free energy
@@ -698,8 +716,8 @@ class MARS():
                 else:
                     self.ca_cbf['major_axis'] = ra**3 / (ra**3 + 1) * np.ones(self.tolArray.shape) * 400
                     self.ca_cbf['minor_axis'] = rb**3 / (rb**3 + 1) * self.tolArray
-                ra = ra + 0.1
-                rb = rb + 0.8
+                ra = ra + 0.5
+                rb = rb + 0.2
                 if annealPrint:
                     a, b = self.ca_cbf['major_axis'][0], self.ca_cbf['minor_axis'][0]
                     print(f'a:{a:.3f}\tb:{b:.3f}')
