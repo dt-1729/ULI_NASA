@@ -251,4 +251,6 @@ def generate_ring_network(params):
 
     return positions, adjacency_matrix
 
+import numpy as np
+
 

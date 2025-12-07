@@ -275,7 +275,7 @@ class flpoAgent():
 
     def calc_route_and_schedule(self, sched, dist_mat, Pb):
         O = [self.s]
-        T = [sched[self.s]]
+        T = [self.start_time, sched[self.s]]
         speeds = []
         m_prev = self.s
         dist = 0

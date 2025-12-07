@@ -10,8 +10,13 @@ import time
 import supporting_functions
 from collections import defaultdict
 from matplotlib.cm import get_cmap
+from matplotlib import cm  # for colormap
 import cvxpy as cp
 from tabulate import tabulate
+import matplotlib.patches as mpatches
+from matplotlib.colors import LinearSegmentedColormap, Normalize
+import matplotlib as mpl
+
 
 # create a multiagent routing and scheduling class
 class MARS():
@@ -30,6 +35,7 @@ class MARS():
         lm                  :float,
         ca_cbf              :str,
         filter_wp_thresh    :float,
+        prune_mode          :bool,
         printFlag           :bool
         ):
 
@@ -48,6 +54,7 @@ class MARS():
         self.ca_cbf = ca_cbf
         self.cost_mode = cost_mode
         self.lm = lm
+        self.prune_mode = prune_mode
         self.filter_wp_thresh = filter_wp_thresh
 
     # function to create waypoints and the corresponding adjacency matrix
@@ -59,6 +66,7 @@ class MARS():
             self.wp_locations, self.mask = supporting_functions.generate_non_uniform_grid_graph_numpy(wp_params)
         elif wp_params['type']=='ring':
             self.wp_locations, self.mask = supporting_functions.generate_ring_network(wp_params)
+
         self.dist_mat = cdist(self.wp_locations, self.wp_locations, 'euclidean')
         self.dist_mat[self.mask==0] = self.INF
         # wp_weights = np.random.uniform(0,1,nw)
@@ -76,7 +84,8 @@ class MARS():
         nw = self.n_waypoints
         agent_weights = np.ones(na)
         self.agent_weights = agent_weights/np.sum(agent_weights)
-        self.sd_mat = np.random.choice(range(nw), (na,2))
+        # self.sd_mat = np.random.choice(range(nw), (na,2))[:, :2]
+        self.sd_mat = np.random.rand(na, nw).argsort(axis=1)
         min_speeds = np.random.uniform(0.01,1.0,na).reshape(-1,1)
         max_speeds = np.random.uniform(70,80,na).reshape(-1,1)
         self.speed_lim_mat = np.concatenate((min_speeds,max_speeds), axis=1)
@@ -85,7 +94,7 @@ class MARS():
         self.sched_mat = np.random.uniform(0.0, 50.0, (na, nw))
         self.start_times = np.random.uniform(0.0, 50.0, na)
         self.sched_mat[np.arange(na),self.sd_mat[:,0]] = self.start_times
-        self.T_upper_bound = 500 
+        self.T_upper_bound = 600
         self.process_T = np.random.uniform(3,5,(na, nw))*0 
         self.process_T[np.arange(na),self.sd_mat[:,1]] = np.zeros(na)
         np.random.seed(None)
@@ -322,13 +331,17 @@ class MARS():
                             Grad_H[i, start_row : start_row + n_rows, j] = n*KTi1[j+1:, j]**(n-1)*np.sign(KTi1[j+1:, j])*b[wp]**n + n*KTi2[j+1:, j]**(n-1)*np.sign(KTi2[j+1:, j])*a[wp]**n 
                             Grad_H[i, start_row : start_row + n_rows, j+1:] = np.diag(n*KTi1[j,j+1:]**(n-1)*np.sign(KTi1[j,j+1:])*b[wp]**n) + np.diag(n*KTi2[j,j+1:]**(n-1)*np.sign(KTi2[j,j+1:])*a[wp]**n) 
                         start_row = start_row + n_rows 
-                        n_rows = n_rows-1            
+                        n_rows = n_rows-1
 
         return H, Grad_H 
 
-    def CBF_waypoints_v1(self, sched_mat, waypoints, filter_wp, returnGrad=True):
+    def CBF_waypoints_v1(self, sched_mat, waypoints, weight_mat, returnGrad=True):
         Nw = len(waypoints)
         Na = self.n_agents
+        # calculate filter matrix
+        filter_wp = np.ones(weight_mat.shape)
+        if self.prune_mode == True:
+            filter_wp[weight_mat <= self.filter_wp_thresh] = 0.0
 
         # define gradient as a 3D tensor
         H = np.array([])
@@ -392,7 +405,42 @@ class MARS():
                         Grad_Hi[:, filter_wp[:,wp]==1.0] = temp_grad
                         Grad_H = np.concatenate((Grad_H, Grad_Hi),axis=0)
 
-        return H, Grad_H
+        elif self.ca_cbf['mode'] == 'rect':
+            w, h, gamma = self.ca_cbf['width'], self.ca_cbf['height'], self.ca_cbf['gamma']
+            ew, eh = self.ca_cbf['width_correction_fac'], self.ca_cbf['height_correction_fac']
+
+            for i, wp in enumerate(waypoints):
+                n_active_agents = int(sum(filter_wp[:,wp]))
+                if n_active_agents > 1:
+                    Ti = sched_mat[:,wp][filter_wp[:,wp]==1.0]
+                    KTi1 = (Ti + Ti.reshape(-1,1))
+                    KTi2 = (Ti - Ti.reshape(-1,1))
+                    a = KTi1**2 - (w[i]*(1+ew))**2/2
+                    b = KTi2**2 - (h[i]*(1+eh))**2/2
+                    ab = np.concatenate((np.array([a]),np.array([b])))
+                    ab_max = np.max(ab, axis=0)
+                    ab_shift = ab - ab_max
+                    exp_ab = np.exp(gamma * ab_shift)
+                    sum_exp_ab = np.sum(exp_ab, axis=0)
+                    p_ab = exp_ab / (sum_exp_ab)
+                    Hi_mat = 1/gamma * np.log(sum_exp_ab) + ab_max
+                    Hi_triu = np.triu_indices_from(Hi_mat, k=1)
+                    H = np.concatenate((H,Hi_mat[Hi_triu]))
+
+                    if returnGrad==True:
+                        start_row = 0
+                        n_rows = n_active_agents-1
+                        Grad_Hi = np.zeros((n_active_agents * (n_active_agents-1)//2, Na))
+                        temp_grad = np.zeros((n_active_agents * (n_active_agents-1)//2, n_active_agents))
+                        for j in range(n_active_agents-1):
+                            temp_grad[start_row : start_row + n_rows, j] =  2*(p_ab[0]*KTi1)[j+1:, j] + 2*(p_ab[1]*KTi2)[j+1:, j]
+                            temp_grad[start_row : start_row + n_rows, j+1:] = np.diag(2*(p_ab[0]*KTi1)[j,j+1:]) + np.diag(2*(p_ab[1]*KTi2)[j,j+1:]) 
+                            start_row = start_row + n_rows 
+                            n_rows = n_rows-1    
+                        Grad_Hi[:, filter_wp[:,wp]==1.0] = temp_grad
+                        Grad_H = np.concatenate((Grad_H, Grad_Hi),axis=0)
+
+        return H, Grad_H, filter_wp
 
 
     def CBF_agents(self, speed_vec):
@@ -401,14 +449,24 @@ class MARS():
         return H, gradH
 
 
-    def get_CBF_control(self, sched_mat, speed_vec, weight_mat, beta, gamma, alpha_s, alpha_c, alpha_r, alpha_q, p):
+    def get_CBF_control(
+        self, 
+        sched_mat, 
+        speed_vec, 
+        weight_mat, 
+        beta, 
+        gamma, 
+        alpha_s, 
+        alpha_c, 
+        alpha_r, 
+        alpha_q, 
+        p):
+
         Nw = self.n_waypoints
         Na = self.n_agents
         # control decision variables
         U = cp.Variable((Na, Nw+1))
         delta = cp.Variable(1)
-        filter_wp = np.ones(weight_mat.shape)
-        filter_wp[weight_mat <= self.filter_wp_thresh] = 0.0
 
         # get free energy and its dot
         F = self.transportCost_v1(sched_mat, speed_vec, beta)
@@ -433,8 +491,6 @@ class MARS():
         # pick agent start schedules and its dot
         start_indices = np.array([[i, a.s] for i, a in enumerate(self.agents)])
         tup_start_indices = (start_indices[:,0], start_indices[:,1])
-        # # pick dropped indices
-        # dropped_indices = np.where(weight_mat <= self.filter_wp_thresh)
 
         # bypass CBF constraint if no waypoint is active
         if self.active_waypoints == [] or self.active_waypoints == None:
@@ -455,14 +511,13 @@ class MARS():
             #     )
             # H_dot = cp.hstack(H_dot_list) # Na(Na+1)/2 x Nw
 
-            H, Grad_H = self.CBF_waypoints_v1(sched_mat, self.active_waypoints, filter_wp, returnGrad=True)
+            H, Grad_H, filter_wp = self.CBF_waypoints_v1(sched_mat, self.active_waypoints, weight_mat, returnGrad=True)
             H_dot_list = []
             cnt = 0
             for wp in self.active_waypoints:
                 n_active_agents = int(np.sum(filter_wp[:,wp]))
                 if n_active_agents > 1:
                     n_conflicts = n_active_agents * (n_active_agents-1) // 2
-                    # print(Grad_H[cnt:cnt+n_conflicts])
                     H_dot_list.append(
                         cp.sum(cp.multiply(Grad_H[cnt:cnt+n_conflicts], cp.reshape(U[:,wp], (1,Na), order='C')), axis=1, keepdims=True)
                     )
@@ -483,7 +538,7 @@ class MARS():
 
         # Solver Options for OSQP
         solver_options = {
-            'max_iter': 50000,         # Increase max iterations to 20000
+            'max_iter': 100000,         # Increase max iterations to 20000
             'eps_abs': 1e-3,           # Adjust absolute tolerance
             'eps_rel': 1e-3,           # Adjust relative tolerance
             'eps_prim_inf': 1e-2,      # Adjust primal infeasibility tolerance
@@ -533,6 +588,7 @@ class MARS():
         beta,
         Tb, 
         Vb, 
+        weight_mat,
         stop_tol,
         disp):
         
@@ -546,7 +602,8 @@ class MARS():
         gradF = lambda x : self.grad_transportCost_v1(x[0:Na*Nw].reshape(-1,Nw), x[Na*Nw:], beta)
 
         # collision avoidance constraints
-        H = lambda x : self.CBF_waypoints(x[0:Na*Nw].reshape(-1,Nw), self.active_waypoints, returnGrad=False)[0].flatten()
+        # H = lambda x : self.CBF_waypoints(x[0:Na*Nw].reshape(-1,Nw), self.active_waypoints, returnGrad=False)[0].flatten()
+        H = lambda x : self.CBF_waypoints_v1(x[0:Na*Nw].reshape(-1,Nw), self.active_waypoints, weight_mat, returnGrad=False)[0].flatten()
         # gradH = lambda x : self.CBF_waypoints(x[0:Na*Nw].reshape(-1,Nw), self.active_waypoints, returnGrad=True)[1].reshape(1,-1)
 
         # collision avoidance inequality
@@ -596,6 +653,7 @@ class MARS():
         alpha_r, 
         alpha_q,
         p, 
+        weight_mat,
         stop_tol,
         stop_tol_weight,
         verbose=0
@@ -608,11 +666,14 @@ class MARS():
         t = 0.0
         iter_count = 0
         F_prev = 1.0
-        weight_mat = self.calc_agent_reach_mat_v1(T_prev, V_prev, beta)
 
         while t < Tf:
             # get control
-            U, F, Fdot, delta = self.get_CBF_control(T_prev, V_prev, weight_mat, beta, gamma, alpha_s, alpha_c, alpha_r, alpha_q, p)
+            U, F, Fdot, delta = self.get_CBF_control(
+                T_prev, V_prev, 
+                weight_mat, beta, 
+                gamma, alpha_s, alpha_c, 
+                alpha_r, alpha_q, p)
 
             if None in (F, Fdot, delta):
                 print('None encountered from get_CBF_control... returning previous iterate!')
@@ -677,8 +738,10 @@ class MARS():
 
         Tb = T0
         Vb = V0
-        ra = 0.001
+        ra = 0.01
         rb = 0.01
+        rw = 0.001
+        rh = 0.01
 
         if optimizer['name'] == 'cbf_clf':
             dt_init         = optimizer['dt_init']
@@ -699,48 +762,51 @@ class MARS():
             stop_tol        = optimizer['stop_tol']
             disp            = optimizer['disp']
 
-
         for beta in beta_arr:
+            weight_mat = self.calc_agent_reach_mat_v1(Tb, Vb, beta)
+            filter_wp = np.ones(weight_mat.shape)
+            filter_wp[weight_mat <= self.filter_wp_thresh] = 0.0
             if active_waypoints is None:
-                reach_mat = self.calc_agent_reach_mat_v1(Tb, Vb, beta)
-                filter_wp = np.ones(reach_mat.shape)
-                filter_wp[reach_mat <= self.filter_wp_thresh] = 0.0
                 self.active_waypoints = list(np.where(np.sum(filter_wp, axis=0)>=2)[0])
             else:
                 self.active_waypoints = active_waypoints
 
             if self.ca_cbf['mode'] == 'ellipse':
                 if beta <= 1:
-                    self.ca_cbf['major_axis'] = ra**2 / (ra**2 + 1) * np.ones(self.tolArray.shape) * 400
+                    self.ca_cbf['major_axis'] = ra**2 / (ra**2 + 1) * np.ones(self.tolArray.shape) * 200
                     self.ca_cbf['minor_axis'] = rb**2 / (rb**2 + 1) * self.tolArray
                 else:
-                    self.ca_cbf['major_axis'] = ra**3 / (ra**3 + 1) * np.ones(self.tolArray.shape) * 400
+                    self.ca_cbf['major_axis'] = ra**3 / (ra**3 + 1) * np.ones(self.tolArray.shape) * 200
                     self.ca_cbf['minor_axis'] = rb**3 / (rb**3 + 1) * self.tolArray
-                ra = ra + 0.5
-                rb = rb + 0.2
+                ra = ra*2
+                rb = rb*2
                 if annealPrint:
                     a, b = self.ca_cbf['major_axis'][0], self.ca_cbf['minor_axis'][0]
                     print(f'a:{a:.3f}\tb:{b:.3f}')
-
-            elif self.ca_cbf['mode'] == 'linear':
-                self.ca_cbf['eps'] = self.tolArray * (beta/(beta+1)) + self.ca_cbf['eta'] * 1/(beta+1)
+            elif self.ca_cbf['mode'] == 'rect':
+                self.ca_cbf['width'] = rw**2 / (rw**2 + 1) * np.ones(self.tolArray.shape) * self.T_upper_bound
+                self.ca_cbf['height'] = rh**3/ (rh**3 + 1) * self.tolArray
+                rw = rw*2
+                rh = rh*2
                 if annealPrint:
-                    eps = self.ca_cbf['eps']
-                    print(f'tolArray:{self.tolArray}\teps:{eps}')
+                    w, h = self.ca_cbf['width'][0], self.ca_cbf['height'][0]
+                    print(f'w:{w:.3f}\th:{h:.3f}')
 
             if optimizer['name'] == 'cbf_clf':
                 Tb, Vb, Ub, Fb, Fdot_b, tolb, delta_b = self.CBF_CLF_at_beta(
                     beta, Tb, Vb, dt_init, dt_min, dt_max, 
-                    Tf, gamma, alpha_s, alpha_c, alpha_r, alpha_q, p, 
-                    stop_tol=stop_tol, 
+                    Tf, gamma, alpha_s, alpha_c, alpha_r, alpha_q, p,
+                    weight_mat, stop_tol=stop_tol, 
                     stop_tol_weight=stop_tol_weight/np.sum(stop_tol_weight), 
                     verbose=verbose)
+                Hb, GradHb, filter_wp = self.CBF_waypoints_v1(Tb, self.active_waypoints, weight_mat, returnGrad=True)
+                
                 if annealPrint:
-                    print(f'\nbeta: {beta:.4e}\tcost: {Fb:.3f}\ttolb: {tolb:.3e}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}')
+                    print(f'\nbeta: {beta:.4e}\tcost: {Fb:.3f}\ttolb: {tolb:.3e}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}\tHbshape:{Hb.shape}')
 
             elif optimizer['name'] == 'SLSQP':
                 Tb, Vb, Fb, compute_time = self.optimize_slsqp_v1(
-                    beta, Tb, Vb, stop_tol, disp
+                    beta, Tb, Vb, weight_mat, stop_tol, disp
                 )
                 if annealPrint:
                     print(f'\nbeta: {beta:.4e}\tcost: {Fb:.3f}\ttol_mag:{self.tolArray[0]:.2f}')
@@ -1139,143 +1205,186 @@ def plot_vehicle_routes(routes, schedule_matrix, process_T, agent_colors):
     plt.show()
 
 
-def plot_waypoint_schedules(association_matrix, schedule_matrix):
-    na, nwp = association_matrix.shape  # Number of agents and waypoints
-    tick_wp = []
-    count = 0
-    plt.figure(figsize=(10, 4))
-    
-    for waypoint_idx in range(nwp):
-        # plot only if at least one agent passes through that waypoint
-        if association_matrix[:, waypoint_idx].sum() > 0.0:
-            # Extract the schedule times and agent indices for the current waypoint
-            agent_indices = np.where(association_matrix[:, waypoint_idx] == 1.0)[0]
-            schedule_times = schedule_matrix[agent_indices, waypoint_idx]
-            
-            # Sort agents by their schedule times
-            sorted_indices = np.argsort(schedule_times)
-            sorted_agents = agent_indices[sorted_indices]
-            sorted_times = schedule_times[sorted_indices]
-            
-            # Plot the horizontal line for the waypoint
-            plt.hlines(count, sorted_times.min(), sorted_times.max(), colors='gray', linestyles='dashed', linewidth=1)
-            
-            # Plot the markers for each agent at their respective schedule time
-            for time, agent in zip(sorted_times, sorted_agents):
-                plt.plot(time, count, 'o', label=f'Agent {agent+1}' if waypoint_idx == 0 else "", markersize=5)
-                plt.text(time, count, rf'$v_{agent}$', fontsize=12, ha='right', va='bottom', color='black')
-
-            tick_wp.append(waypoint_idx)
-            count += 1
-            # plt.yticks(range(nwp), rf'$w_{i+1}$')
-
-    # Customize the plot
-    # plt.title("Agent Schedules at Waypoints")
-    plt.ylim(-0.2,len(tick_wp)-0.3)
-    plt.xlabel("Time (s)")
-    plt.ylabel("Waypoint ID")
-    plt.yticks(range(len(tick_wp)), [rf'$w_{{{i}}}$' for i in tick_wp])
-    # plt.xticks([])
-    plt.grid(axis='x', linestyle='--', alpha=0.7)
-    plt.grid(axis='y', linestyle='--', alpha=0.3)
-    # plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', title="Agents")
-    plt.tight_layout()
-    plt.show()
-
-
 def plot_waypoint_agent_schedules(
-    routes, schedules, schedule_matrix, association_matrix, 
-    process_T, agent_colors, figuresize):
-    # Get the number of unique vertices
+    routes, schedules, schedule_matrix, association_matrix,
+    process_T, tolArray, agent_colors, figuresize,
+    bar_thickness=0.1, marker_size=8, start_marker_size=15, index_size=24,
+    x_tick_size=20, y_tick_size=20, x_label_size=20, y_label_size=20
+):
+    """
+    Visualizes:
+      1. Vehicle routes and their schedules over time (top subplot)
+      2. Waypoint occupancy timelines and conflicts (bottom subplot)
+    """
+
+    # ------------------------------------------------------------
+    # Helper: Assign distinct colors to each vertex
+    # ------------------------------------------------------------
     unique_vertices = sorted(set(v for route in routes for v in route))
     num_vertices = len(unique_vertices)
-    
-    # Assign a color to each vertex using a colormap
-    cmap = get_cmap('Dark2')  # You can change this to any other colormap
-    vertex_colors = {vertex: cmap(i / num_vertices) for i, vertex in enumerate(unique_vertices)}
+    cmap_vertices = get_cmap('Dark2')
+    vertex_colors = {v: cmap_vertices(i / num_vertices) for i, v in enumerate(unique_vertices)}
 
     plt.figure(figsize=figuresize)
 
-    plt.subplot(2,1,1)
+    # ------------------------------------------------------------
+    # Subplot 1: Vehicle timelines
+    # ------------------------------------------------------------
+    plt.subplot(2, 1, 1)
     num_vehicles = len(routes)
-    plt.ylim(-0.5,num_vehicles-0.1)
+    plt.ylim(-0.5, num_vehicles - 0.1)
 
     for vehicle_id in range(num_vehicles):
         route = routes[vehicle_id]
         schedule = schedules[vehicle_id]
         t_process = process_T[vehicle_id]
-        # v_max = speedLim[vehicle_id,1]
-        
-        # Y-coordinate for this vehicle (vehicle ID)
         y = vehicle_id
-        
-        # Plot the horizontal line for the vehicle
-        plt.hlines(y, schedule[0], schedule[-1], colors=agent_colors[vehicle_id], linestyles='dashed', linewidth=2)
-        
-        # Plot the schedule points with assigned colors
-        # vertex_prev = []
-        for time, vertex in zip(schedule, route):
+
+        # --- Start Marker (gray triangle pointing right) ---
+        start_time = schedule[0]
+        departure_time_first = schedule[1]
+        plt.plot(start_time, y, '>', color='grey', markersize=start_marker_size,
+                 markeredgewidth=1.5, alpha=0.3, zorder=5)
+
+        # --- Bars between consecutive events (light gray background) ---
+        for i in range(len(schedule) - 1):
+            plt.fill_betweenx(
+                [y - bar_thickness, y + bar_thickness],
+                schedule[i], schedule[i + 1],
+                color='gray', alpha=0.1, zorder=1
+            )
+
+        # --- Route Vertices and Processing Durations ---
+        for i, vertex in enumerate(route):
             color = vertex_colors[vertex]
-            # Vertical line
-            # plt.vlines(time, 0, y, color=color, linestyles='dotted', linewidth=1, alpha=0.8)
-            plt.plot(time, y, '|', color=color, markersize=10, markeredgewidth=3)
-            plt.plot(time+t_process[vertex], y, '|', color=color, markersize=5, markeredgewidth=3)
-            # plt.plot(time-t_process[vertex_prev]+dist_mat[vertex_prev,vertex]/v_max, y, '|', color=color, markersize=10, markeredgewidth=1)
-            plt.text(time, y, rf'${{{vertex}}}$', color='black', fontsize=22, ha='center', va='bottom')
-            
-    # Add a legend to show the mapping of colors to vertices
+
+            if i == 0:
+                # First vertex (special case: start)
+                plt.plot(departure_time_first, y, 'o',
+                         color=color, markersize=marker_size,
+                         markeredgewidth=1.5, markerfacecolor=color, zorder=10)
+                plt.plot(departure_time_first + t_process[vertex], y, 'o',
+                         color=color, markersize=marker_size, markerfacecolor=color, zorder=10)
+                plt.text(departure_time_first, y + 0.1, rf'${{{vertex}}}$',
+                         color='black', fontsize=index_size, ha='center', va='bottom')
+            else:
+                # Other vertices
+                time = schedule[i + 1]  # offset because schedule[0] is start time
+                plt.plot(time, y, 'o', color=color, markersize=marker_size,
+                         markeredgewidth=1.5, markerfacecolor=color, zorder=10)
+                plt.fill_betweenx([y - bar_thickness, y + bar_thickness],
+                                  time, time + t_process[vertex],
+                                  color='violet', alpha=0.1, zorder=1)
+                plt.plot(time + t_process[vertex], y, 'o', color=color,
+                         markersize=marker_size, markerfacecolor=color, zorder=10)
+                plt.text(time, y + 0.1, rf'${{{vertex}}}$',
+                         color='black', fontsize=index_size, ha='center', va='bottom')
+
+    # --- Vertex Color Legend ---
     for vertex, color in vertex_colors.items():
         plt.plot([], [], 'o', color=color, label=f"Vertex {vertex}")
-    
-    # plt.title("Vehicle Routes and Schedules through Waypoint")
-    # plt.xlabel("Time (s)", fontsize=18)
-    plt.ylabel(r"$a_j$", fontsize=18)
-    plt.yticks(range(num_vehicles), [rf"${{{i}}}$" for i in range(num_vehicles)], fontsize=18)
-    plt.xticks(fontsize=18)
+
+    plt.ylabel(r"$a_j$", fontsize=y_label_size)
+    plt.yticks(range(num_vehicles), [rf"${{{i}}}$" for i in range(num_vehicles)], fontsize=y_tick_size)
+    plt.xticks(fontsize=x_tick_size)
     plt.grid(axis='x', linestyle='--', alpha=0.7)
     plt.grid(axis='y', linestyle='--', alpha=0.3)
-    # plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', title="Waypoints")
     plt.tight_layout()
 
+    # ------------------------------------------------------------
+    # Subplot 2: Waypoint timelines (conflict visualization)
+    # ------------------------------------------------------------
+    plt.subplot(2, 1, 2)
 
-    na, nwp = association_matrix.shape  # Number of agents and waypoints
+    cmap = cm.get_cmap('RdYlGn')  # green (safe) → yellow → red (conflict)
+    na, nwp = association_matrix.shape
     tick_wp = []
     count = 0
-    plt.subplot(2,1,2)
+
     for waypoint_idx in range(nwp):
-        # plot only if at least one agent passes through that waypoint
-        if association_matrix[:, waypoint_idx].sum() > 0.0:
-            # Extract the schedule times and agent indices for the current waypoint
-            agent_indices = np.where(association_matrix[:, waypoint_idx] == 1.0)[0]
-            schedule_times = schedule_matrix[agent_indices, waypoint_idx]
-            
-            # Sort agents by their schedule times
-            sorted_indices = np.argsort(schedule_times)
-            sorted_agents = agent_indices[sorted_indices]
-            sorted_times = schedule_times[sorted_indices]
-            
-            # Plot the horizontal line for the waypoint
-            plt.hlines(count, sorted_times.min(), sorted_times.max(), colors='gray', linestyles='dashed', linewidth=2)
-            
-            # Plot the markers for each agent at their respective schedule time
-            for time, agent in zip(sorted_times, sorted_agents):
-                plt.plot(time, count, 'o', label=f'Agent {agent+1}' if waypoint_idx == 0 else "", markersize=5)
-                plt.text(time, count, rf'${agent}$', fontsize=22, ha='center', va='bottom', color='black')
+        # Skip waypoints not visited by any agent
+        if association_matrix[:, waypoint_idx].sum() <= 0.0:
+            continue
 
-            tick_wp.append(waypoint_idx)
-            count += 1
-            # plt.yticks(range(nwp), rf'$w_{i+1}$')
+        # Agents visiting this waypoint
+        agent_indices = np.where(association_matrix[:, waypoint_idx] == 1.0)[0]
+        schedule_times = schedule_matrix[agent_indices, waypoint_idx]
 
-    # Customize the plot
-    # plt.title("Agent Schedules at Waypoints")
-    plt.ylim(-0.5,len(tick_wp)-0.1)
-    plt.xlabel("Time (s)", fontsize=18)
-    plt.ylabel(r"$w_i$", fontsize=18)
-    plt.yticks(range(len(tick_wp)), [rf'${{{i}}}$' for i in tick_wp], fontsize=18)
-    plt.xticks(fontsize=18)
+        # Sort by arrival time
+        sorted_indices = np.argsort(schedule_times)
+        sorted_agents = agent_indices[sorted_indices]
+        sorted_times = schedule_times[sorted_indices]
+        tol = tolArray[waypoint_idx]
+
+        # --- Draw bars between consecutive arrivals, color-coded by gap ---
+        for i in range(len(sorted_times) - 1):
+            t1, t2 = sorted_times[i], sorted_times[i + 1]
+            gap = t2 - t1
+
+            # Nonlinear normalized ratio: 0=red (conflict), 1=green (safe)
+            ratio = np.clip((gap - tol + 0.1 * tol) / tol, 0, 1) ** 0.3
+            color = cmap(ratio)
+
+            plt.fill_betweenx(
+                [count - bar_thickness, count + bar_thickness],
+                t1, t2,
+                color=color, alpha=0.8, zorder=1
+            )
+
+        # --- Mark each agent's arrival ---
+        for time, agent in zip(sorted_times, sorted_agents):
+            plt.plot(time, count, 'o', markersize=marker_size,
+                     color='black', markerfacecolor='white', zorder=3)
+            plt.text(time, count + 0.1, rf'${agent}$',
+                     fontsize=index_size, ha='center', va='bottom', color='black')
+
+        tick_wp.append(waypoint_idx)
+        count += 1
+
+    # --- Axes Formatting ---
+    plt.ylim(-0.5, len(tick_wp) - 0.1)
+    plt.xlabel("Time (s)", fontsize=x_label_size)
+    plt.ylabel(r"$w_i$", fontsize=y_label_size)
+    plt.yticks(range(len(tick_wp)), [rf'${{{i}}}$' for i in tick_wp], fontsize=y_tick_size)
+    plt.xticks(fontsize=x_tick_size)
     plt.grid(axis='x', linestyle='--', alpha=0.7)
     plt.grid(axis='y', linestyle='--', alpha=0.3)
-    # plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', title="Agents")
     plt.tight_layout()
+
+    # ------------------------------------------------------------
+    # Colorbar (continuous legend inside the bottom subplot)
+    # ------------------------------------------------------------
+    ax = plt.gca()  # current (bottom) axes
+    norm = mpl.colors.Normalize(vmin=0, vmax=1)
+    sm = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+
+    # Create a thin inset axis inside the current subplot (no change to layout)
+    # [x0, y0, width, height] in axis coordinates (0–1)
+    cax = ax.inset_axes([0.40, 0.90, 0.5, 0.04])  # adjust height/position as needed
+
+    # Add a horizontal colorbar in that inset
+    cbar = plt.colorbar(sm, cax=cax, orientation='horizontal')
+    cbar.set_label('Gap between consecutive agent arrivals', fontsize=12, labelpad=4)
+
+    # Tick positions matching nonlinear mapping
+    ticks = [0.0, (0.1)**0.3, (1.0)**0.3, 1.0]
+    tick_labels = [
+        'Conflict (gap ≪ tol)',
+        '≈ 0.9×tol',
+        'Tolerance (gap = tol)',
+        'Safe (gap > tol)'
+    ]
+
+    cbar.set_ticks(ticks)
+    cbar.set_ticklabels(tick_labels)
+    cbar.ax.tick_params(labelsize=x_tick_size)
+
+    # Optional: draw a subtle border around the colorbar region
+    for spine in cbar.ax.spines.values():
+        spine.set_visible(True)
+        spine.set_alpha(0.3)
+
+
+
     plt.show()
-    
