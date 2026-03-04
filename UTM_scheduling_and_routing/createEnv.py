@@ -39,7 +39,7 @@ class MARS():
         printFlag           :bool
         ):
 
-        self.n_waypoints = n_waypoints
+        # self.n_waypoints = n_waypoints
         self.n_agents = n_agents
         self.tolArray = tolArray
         self.INF = 1e8
@@ -61,16 +61,18 @@ class MARS():
     def initWaypoints(self, wp_params:dict, seed:int):
         np.random.seed(seed)
         random.seed(seed)
-        nw = self.n_waypoints
+
         if wp_params['type']=='grid':
             self.wp_locations, self.mask = supporting_functions.generate_non_uniform_grid_graph_numpy(wp_params)
         elif wp_params['type']=='ring':
             self.wp_locations, self.mask = supporting_functions.generate_ring_network(wp_params)
-
+        elif wp_params['type']=='multigraph':
+            self.wp_locations, self.mask = supporting_functions.generate_multigraph(wp_params)
         self.dist_mat = cdist(self.wp_locations, self.wp_locations, 'euclidean')
         self.dist_mat[self.mask==0] = self.INF
         # wp_weights = np.random.uniform(0,1,nw)
-        wp_weights = np.ones(nw)
+        self.n_waypoints = len(self.wp_locations)
+        wp_weights = np.ones(self.n_waypoints)
         self.wp_weights = wp_weights/np.sum(wp_weights)
         np.random.seed(None)
         random.seed(None)
@@ -698,8 +700,8 @@ class MARS():
             else:
                 theta = 1.0
 
-            tol_T = np.max(np.abs(T_next-T_prev))/np.max(np.abs(T_next))
-            tol_V = np.max(np.abs(V_next-V_prev))/np.max(np.abs(V_next))
+            tol_T = np.max(np.abs(T_next-T_prev))/np.max(np.abs(T_prev))
+            tol_V = np.max(np.abs(V_next-V_prev))/np.max(np.abs(V_prev))
             tol_F = np.abs(F - F_prev)/np.abs(F_prev)
             tol_Fdot = abs(Fdot * dt)/np.abs(F_prev)
             stop_tol_weight = stop_tol_weight/np.sum(stop_tol_weight)
@@ -762,7 +764,8 @@ class MARS():
             stop_tol        = optimizer['stop_tol']
             disp            = optimizer['disp']
 
-        for beta in beta_arr:
+        for i, beta in enumerate(beta_arr):
+            t0 = time.time()
             weight_mat = self.calc_agent_reach_mat_v1(Tb, Vb, beta)
             filter_wp = np.ones(weight_mat.shape)
             filter_wp[weight_mat <= self.filter_wp_thresh] = 0.0
@@ -785,7 +788,7 @@ class MARS():
                     print(f'a:{a:.3f}\tb:{b:.3f}')
             elif self.ca_cbf['mode'] == 'rect':
                 self.ca_cbf['width'] = rw**2 / (rw**2 + 1) * np.ones(self.tolArray.shape) * self.T_upper_bound
-                self.ca_cbf['height'] = rh**3/ (rh**3 + 1) * self.tolArray
+                self.ca_cbf['height'] = rh/ (rh + 1) * self.tolArray
                 rw = rw*2
                 rh = rh*2
                 if annealPrint:
@@ -810,6 +813,18 @@ class MARS():
                 )
                 if annealPrint:
                     print(f'\nbeta: {beta:.4e}\tcost: {Fb:.3f}\ttol_mag:{self.tolArray[0]:.2f}')
+            t1 = time.time()
+
+            if i == 0:
+                Tb_array = np.array([Tb])
+                Vb_array = np.array([Vb])
+                chi_array = np.array([weight_mat])
+                t_compute_array = np.array([t1-t0])
+            else:
+                Tb_array = np.concatenate((Tb_array, np.array([Tb])))
+                Vb_array = np.concatenate((Vb_array, np.array([Vb])))
+                chi_array = np.concatenate((chi_array, np.array([weight_mat])))
+                t_compute_array = np.concatenate((t_compute_array, np.array([t1-t0])))
 
         # compute final probability associations
         Pb_a = []
@@ -817,7 +832,7 @@ class MARS():
             Pb = a.getPathAssociations_v1(Tb[i,:], Vb[i], self.dist_mat, beta_arr[-1])
             Pb_a.append(Pb)
 
-        return Tb, Vb, Fb, Pb_a
+        return Tb_array, Vb_array, Fb, Pb_a, chi_array, t_compute_array
 
 
     # function to perform annealing
@@ -1091,17 +1106,17 @@ def plotNetwork(mars:MARS, figuresize, routes, agent_colors, showEdgeLength=True
     for start_idx, agents in start_groups.items():
         start_x, start_y = wp_xy[start_idx]
         if len(agents) > 1:
-            label = ', '.join([rf'$a_{i}$' for i in agents])  # Combined label for multiple agents
+            label = ', '.join([rf'$a_{{{i}}}$' for i in agents])  # Combined label for multiple agents
         else:
-            label = rf'$a_{agents[0]}$'
+            label = rf'$a_{{{agents[0]}}}$'
         plt.text(start_x+0.5, start_y+0.5, label, color='darkgreen', fontsize=18,
                 ha='left', va='top', fontweight='bold')
     for dest_idx, agents in destination_groups.items():
         dest_x, dest_y = wp_xy[dest_idx]
         if len(agents) > 1:
-            label = ', '.join([rf'$a_{i}$' for i in agents])  # Combined label for multiple agents
+            label = ', '.join([rf'$a_{{{i}}}$' for i in agents])  # Combined label for multiple agents
         else:
-            label = rf'$a_{agents[0]}$'
+            label = rf'$a_{{{agents[0]}}}$'
         plt.text(dest_x + 0.5, dest_y + 0.5, label, color='red', fontsize=18,
                 ha='left', va='bottom', fontweight='bold')
 
@@ -1230,7 +1245,7 @@ def plot_waypoint_agent_schedules(
     # ------------------------------------------------------------
     # Subplot 1: Vehicle timelines
     # ------------------------------------------------------------
-    plt.subplot(2, 1, 1)
+    plt.subplot(1, 2, 1)
     num_vehicles = len(routes)
     plt.ylim(-0.5, num_vehicles - 0.1)
 
@@ -1294,7 +1309,7 @@ def plot_waypoint_agent_schedules(
     # ------------------------------------------------------------
     # Subplot 2: Waypoint timelines (conflict visualization)
     # ------------------------------------------------------------
-    plt.subplot(2, 1, 2)
+    plt.subplot(1, 2, 2)
 
     cmap = cm.get_cmap('RdYlGn')  # green (safe) → yellow → red (conflict)
     na, nwp = association_matrix.shape
@@ -1361,11 +1376,11 @@ def plot_waypoint_agent_schedules(
 
     # Create a thin inset axis inside the current subplot (no change to layout)
     # [x0, y0, width, height] in axis coordinates (0–1)
-    cax = ax.inset_axes([0.40, 0.90, 0.5, 0.04])  # adjust height/position as needed
+    cax = ax.inset_axes([0.80, 0.10, 0.02, 0.7])  # adjust height/position as needed
 
     # Add a horizontal colorbar in that inset
-    cbar = plt.colorbar(sm, cax=cax, orientation='horizontal')
-    cbar.set_label('Gap between consecutive agent arrivals', fontsize=12, labelpad=4)
+    cbar = plt.colorbar(sm, cax=cax, orientation='vertical')
+    # cbar.set_label('Gap between consecutive agent arrivals', fontsize=12, labelpad=4)
 
     # Tick positions matching nonlinear mapping
     ticks = [0.0, (0.1)**0.3, (1.0)**0.3, 1.0]

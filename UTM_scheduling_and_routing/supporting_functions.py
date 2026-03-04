@@ -108,34 +108,40 @@ def generate_non_uniform_grid_points(n_points, square_size=1.0, noise_factor=0.0
     points += noise
     return points
 
-
 def generate_non_uniform_grid_graph_numpy(params):
     n_points = params['n_points']
     square_size = params['grid_size']
-    noise_factor=params['noise_factor']
+    noise_factor = params['noise_factor']
+    extra_connections = params.get('extra_connections', 0)
+
     points = generate_non_uniform_grid_points(n_points, square_size, noise_factor)
     adj = np.zeros((n_points, n_points), dtype=int)
+
     tolerance = 0.1 * square_size / np.sqrt(n_points)
     grid_size = int(np.ceil(np.sqrt(n_points)))
-    
+
+    # --- Base grid connections ---
     for i in range(grid_size):
         for j in range(grid_size):
             index = i * grid_size + j
             if index >= n_points:
                 break
-            
+
+            # Right neighbor
             if j + 1 < grid_size and index + 1 < n_points:
                 right_neighbor = index + 1
                 if abs(points[index][1] - points[right_neighbor][1]) < tolerance:
                     adj[index, right_neighbor] = 1
                     adj[right_neighbor, index] = 1
-            
+
+            # Bottom neighbor
             if i + 1 < grid_size and index + grid_size < n_points:
                 bottom_neighbor = index + grid_size
                 if abs(points[index][0] - points[bottom_neighbor][0]) < tolerance:
                     adj[index, bottom_neighbor] = 1
                     adj[bottom_neighbor, index] = 1
 
+    # --- Ensure connectivity ---
     def find_connected_component(node, visited):
         stack = [node]
         component = []
@@ -146,31 +152,50 @@ def generate_non_uniform_grid_graph_numpy(params):
                 component.append(current)
                 stack.extend(np.where(adj[current] == 1)[0])
         return component
-    
+
     visited = np.zeros(n_points, dtype=bool)
     components = []
-    
+
     for node in range(n_points):
         if not visited[node]:
-            component = find_connected_component(node, visited)
-            components.append(component)
-    
+            components.append(find_connected_component(node, visited))
+
     if len(components) > 1:
-        kd_tree = KDTree(points)
         for i in range(len(components) - 1):
             comp1, comp2 = components[i], components[i + 1]
             min_dist = float('inf')
-            closest_pair = (None, None)
-            for node1 in comp1:
-                for node2 in comp2:
-                    dist = np.linalg.norm(points[node1] - points[node2])
+            closest_pair = None
+            for u in comp1:
+                for v in comp2:
+                    dist = np.linalg.norm(points[u] - points[v])
                     if dist < min_dist:
                         min_dist = dist
-                        closest_pair = (node1, node2)
+                        closest_pair = (u, v)
             adj[closest_pair[0], closest_pair[1]] = 1
             adj[closest_pair[1], closest_pair[0]] = 1
 
+    # --- Add extra random connections ---
+    if extra_connections > 0:
+        tree = KDTree(points)
+        added = 0
+        attempts = 0
+        max_attempts = extra_connections * 10
+
+        while added < extra_connections and attempts < max_attempts:
+            node = np.random.randint(0, n_points)
+            dists, neighbors = tree.query(points[node], k=10)
+
+            for neighbor in neighbors[1:]:
+                if adj[node, neighbor] == 0:
+                    adj[node, neighbor] = 1
+                    adj[neighbor, node] = 1
+                    added += 1
+                    break
+
+            attempts += 1
+
     return points, adj
+
 
 
 def generate_ring_network(params):
@@ -251,6 +276,130 @@ def generate_ring_network(params):
 
     return positions, adjacency_matrix
 
-import numpy as np
 
+def generate_multigraph(params):
 
+    n_points = params['n_points']
+    n_graphs = params['n_graphs']
+    grid_size = params['grid_size']
+    intra_graph_connectivity = params['intra_graph_connectivity']
+    inter_graph_connectivity = params['inter_graph_connectivity']
+    subgraph_type = params['subgraph_type']   # "grid" or "ring"
+    seed = params['seed']
+
+    if seed is not None:
+        np.random.seed(seed)
+        random.seed(seed)
+
+    assert 0 <= intra_graph_connectivity <= 1
+    assert 0 <= inter_graph_connectivity <= 1
+    assert subgraph_type in ["grid", "ring"]
+
+    # -------------------------------------------------
+    # 1. Split points into subgraphs
+    # -------------------------------------------------
+    sizes = [n_points // n_graphs] * n_graphs
+    for i in range(n_points % n_graphs):
+        sizes[i] += 1
+
+    labels = np.concatenate([
+        np.full(size, g) for g, size in enumerate(sizes)
+    ])
+
+    wp_locations = np.zeros((n_points, 2))
+    adjacency_matrix = np.zeros((n_points, n_points), dtype=int)
+
+    centers = np.random.uniform(
+        0.2 * grid_size, 0.8 * grid_size, size=(n_graphs, 2)
+    )
+
+    idx = 0
+    for g, size in enumerate(sizes):
+        nodes = np.arange(idx, idx + size)
+
+        # -------------------------------------------------
+        # 2. Place nodes + base topology
+        # -------------------------------------------------
+        if subgraph_type == "grid":
+            side = int(np.ceil(np.sqrt(size)))
+            xs, ys = np.meshgrid(
+                np.arange(side), np.arange(side)
+            )
+            coords = np.column_stack([xs.ravel(), ys.ravel()])[:size]
+
+            coords = coords - coords.mean(axis=0)
+            coords *= grid_size / (5 * n_graphs)
+
+            wp_locations[nodes] = centers[g] + coords
+
+            # 4-neighbor grid (base edges)
+            for i in range(size):
+                for j in range(i + 1, size):
+                    if np.sum(np.abs(coords[i] - coords[j])) == 1:
+                        adjacency_matrix[nodes[i], nodes[j]] = 1
+                        adjacency_matrix[nodes[j], nodes[i]] = 1
+
+        else:  # ring
+            angles = np.linspace(0, 2 * np.pi, size, endpoint=False)
+            radius = grid_size / (6 * n_graphs)
+
+            wp_locations[nodes] = np.column_stack([
+                centers[g, 0] + radius * np.cos(angles),
+                centers[g, 1] + radius * np.sin(angles)
+            ])
+
+            for i in range(size):
+                j = (i + 1) % size
+                adjacency_matrix[nodes[i], nodes[j]] = 1
+                adjacency_matrix[nodes[j], nodes[i]] = 1
+
+        # -------------------------------------------------
+        # 3. Extra intra-subgraph edges (controlled)
+        # -------------------------------------------------
+        d = cdist(wp_locations[nodes], wp_locations[nodes])
+        possible = np.where(
+            (d > 0) & (adjacency_matrix[np.ix_(nodes, nodes)] == 0)
+        )
+
+        num_possible = len(possible[0])
+        num_add = int(intra_graph_connectivity * num_possible)
+
+        if num_possible > 0 and num_add > 0:
+            chosen = np.random.choice(
+                np.arange(num_possible), size=num_add, replace=False
+            )
+            for k in chosen:
+                i, j = possible[0][k], possible[1][k]
+                adjacency_matrix[nodes[i], nodes[j]] = 1
+                adjacency_matrix[nodes[j], nodes[i]] = 1
+
+        idx += size
+
+    # -------------------------------------------------
+    # 4. Inter-subgraph edges
+    # -------------------------------------------------
+    inter_pairs = [
+        (i, j) for i in range(n_points) for j in range(i + 1, n_points)
+        if labels[i] != labels[j]
+    ]
+
+    num_inter = int(inter_graph_connectivity * len(inter_pairs))
+    if num_inter > 0:
+        chosen = np.random.choice(len(inter_pairs), size=num_inter, replace=False)
+        for k in chosen:
+            i, j = inter_pairs[k]
+            adjacency_matrix[i, j] = 1
+            adjacency_matrix[j, i] = 1
+
+    # -------------------------------------------------
+    # 5. Ensure no isolated nodes
+    # -------------------------------------------------
+    tree = KDTree(wp_locations)
+    for i in range(n_points):
+        if adjacency_matrix[i].sum() == 0:
+            _, idxs = tree.query(wp_locations[i], k=2)
+            j = idxs[1]
+            adjacency_matrix[i, j] = 1
+            adjacency_matrix[j, i] = 1
+
+    return wp_locations, adjacency_matrix
