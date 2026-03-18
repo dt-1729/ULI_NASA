@@ -16,6 +16,8 @@ from tabulate import tabulate
 import matplotlib.patches as mpatches
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 import matplotlib as mpl
+import gurobipy as gp
+from gurobipy import GRB
 
 
 # create a multiagent routing and scheduling class
@@ -87,14 +89,18 @@ class MARS():
         agent_weights = np.ones(na)
         self.agent_weights = agent_weights/np.sum(agent_weights)
         # self.sd_mat = np.random.choice(range(nw), (na,2))[:, :2]
-        self.sd_mat = np.random.rand(na, nw).argsort(axis=1)
-        min_speeds = np.random.uniform(0.01,1.0,na).reshape(-1,1)
+        # mat = np.zeros((na, 2), dtype=int)
+        # for i in range(na):
+        #     mat[i] = np.random.choice(nw, size=2, replace=False)
+        self.sd_mat = np.array([np.random.choice(nw, size=2, replace=False) for i in range(na)])
+        # self.sd_mat = np.random.rand(na, nw).argsort(axis=1)
+        min_speeds = np.random.uniform(0.01,1,na).reshape(-1,1)
         max_speeds = np.random.uniform(70,80,na).reshape(-1,1)
         self.speed_lim_mat = np.concatenate((min_speeds,max_speeds), axis=1)
         self.speed_vec = self.speed_lim_mat.mean(axis=1)
         max_time = np.max(cdist(self.wp_locations, self.wp_locations, 'euclidean'))/np.min(min_speeds)
         self.sched_mat = np.random.uniform(0.0, 50.0, (na, nw))
-        self.start_times = np.random.uniform(0.0, 50.0, na)
+        self.start_times = np.random.uniform(0.0, 0.0, na)
         self.sched_mat[np.arange(na),self.sd_mat[:,0]] = self.start_times
         self.T_upper_bound = 600
         self.process_T = np.random.uniform(3,5,(na, nw))*0 
@@ -139,14 +145,6 @@ class MARS():
             print('---------')
             print(f'agent_weights:\n{self.agent_weights} \nsd_mat:\n{self.sd_mat} \neta_arr: \nprocessing_time:\n{self.process_T} \nspeed_lim_mat:\n{self.speed_lim_mat} \nsched_mat:\n{self.sched_mat} \nspeed_vec:\n{self.speed_vec}')
 
-    def calc_agent_reach_mat(self, sched_mat, beta, gamma, coeff):
-        reach_mat = []
-        for i,ag in enumerate(self.agents):
-            Pb = ag.getPathAssociations(sched_mat[i,:], self.dist_mat, beta, gamma, coeff)
-            ag_reach = ag.calc_probability_of_reach(Pb)
-            reach_mat.append(ag_reach)
-        return np.array(reach_mat)
-
     def calc_agent_reach_mat_v1(self, sched_mat, speed_vec, beta):
         reach_mat = []
         for i,ag in enumerate(self.agents):
@@ -154,29 +152,6 @@ class MARS():
             ag_reach = ag.calc_agent_wp_association(Pb)[0][0]
             reach_mat.append(ag_reach)
         return np.array(reach_mat)
-
-    # function to compute total vehicle cost of transportation based on min max speed
-    def transportCost(
-        self, 
-        sched_mat:np.ndarray, 
-        beta:float, 
-        gamma:float, 
-        coeff:float, 
-        allowPrint=False):
-
-        C_arr = np.zeros(self.n_agents)
-        for i in range(self.n_agents):
-            v = self.agents[i]
-            v.getFreeEnergy_s(sched_mat[i,:], self.dist_mat, beta, gamma, coeff)     
-            C_arr[i] = v.freeEnergy_s
-        self.C_agents = C_arr
-        
-        if allowPrint:
-            print('\nindividual agent costs:')
-            for i,v in enumerate(self.agents):
-                print(f'v{i+1}:\t{v.freeEnergy_s:.2f}')
-            print(f'sum: {self.C_agents}')
-        pass
 
     # function to compute total vehicle cost of transportation based on mean speed
     def transportCost_v1(
@@ -200,72 +175,6 @@ class MARS():
         
         return transport_cost
 
-    # function to compute total node conflict cost
-    def conflictCost(self, sched_mat:np.ndarray, gamma:float, coeff:float, filter_wp:np.ndarray, allowPrint=False):
-        nw = self.n_waypoints
-        na = self.n_agents
-        # conflictMat = np.zeros(shape=(nw, na, na))
-        conflictCostArray = np.zeros(nw)
-        # filter_wp_arr = filter_wp.max(axis=0)
-        for j in range(nw):
-            ids = np.where(filter_wp[:,j]==1)[0]
-            if len(ids)>=2:
-                tj = sched_mat[ids,j].reshape(-1,1)
-                tauj = np.tile(tj,(1,len(ids))) - np.transpose(np.tile(tj,(1,len(ids))))
-                conflictMat = supporting_functions.myPenaltyFunc(self.tolArray[j]**2-np.abs(tauj)**2, gamma, coeff)
-                np.fill_diagonal(conflictMat, 0.0)
-                conflictCostArray[j] = self.wp_weights[j]*np.sum(np.abs(conflictMat))
-        self.C_wp_conflict = conflictCostArray
-
-        if allowPrint:
-            print(f'\ninidividual conflict costs: \n {conflictCostArray}\nsum: {self.C_wp_conflict}')
-        pass
-
-    # function to compute total node conflict cost
-    def conflictCost1(self, sched_mat:np.ndarray, gamma:float, coeff:float, allowPrint=False):
-        nw = self.n_waypoints
-        na = self.n_agents
-        conflictCostArray = np.zeros(nw)
-        for j in range(nw):
-            tj = sched_mat[:,j].reshape(-1,1)
-            tauj = np.tile(tj,(1,self.n_agents)) - np.transpose(np.tile(tj,(1,self.n_agents)))
-            conflictMat = supporting_functions.myPenaltyFunc(self.tolArray[j]**2-np.abs(tauj)**2, gamma, coeff)
-            np.fill_diagonal(conflictMat, 0.0)
-            conflictCostArray[j] = self.wp_weights[j] * np.sum(np.abs(conflictMat))
-        self.C_wp_conflict = conflictCostArray
-
-        if allowPrint:
-            print(f'\ninidividual conflict costs: \n {conflictCostArray}\nsum: {self.C_wp_conflict}')
-        pass
-
-    # function to compute total cost
-    def totalCost(self, sched_vec:np.ndarray, beta:float, gamma_t:float, gamma_c:float, coeff_t:float, coeff_c:float, filter_wp:np.ndarray):
-        assert(sched_vec.shape == (self.n_agents*self.n_waypoints,))
-        sched_mat = sched_vec.reshape(self.n_agents,self.n_waypoints)
-        self.transportCost(sched_mat=sched_mat, beta=beta, gamma=gamma_t, coeff=coeff_t, allowPrint=False)
-        self.conflictCost(sched_mat=sched_mat, gamma=gamma_c, coeff=coeff_c, filter_wp=filter_wp)
-        nw = self.n_waypoints
-        na = self.n_agents
-        C = np.sum(self.agent_weights*self.C_agents) + np.sum(self.C_wp_conflict) + 0.00*np.sum(np.abs(sched_vec))
-        return C
-
-    # # function to compute total cost
-    # def totalCost_v1(
-    #     self, 
-    #     sched_vec:np.ndarray,
-    #     beta:float, 
-    #     gamma_c:float, 
-    #     coeff_c:float, 
-    #     filter_wp:np.ndarray):
-
-    #     assert(sched_vec.shape == (self.n_agents*self.n_waypoints,))
-    #     sched_mat = sched_vec.reshape(self.n_agents,self.n_waypoints)
-    #     self.transportCost_v1(sched_mat=sched_mat, beta=beta, allowPrint=False)
-    #     self.conflictCost(sched_mat=sched_mat, gamma=gamma_c, coeff=coeff_c, filter_wp=filter_wp)
-    #     nw = self.n_waypoints
-    #     na = self.n_agents
-    #     C = np.sum(self.agent_weights*self.C_agents) + np.sum(self.C_wp_conflict) + 0.00*np.sum(np.abs(sched_vec))
-    #     return C
 
     def grad_transportCost_v1(self, sched_mat, speed_vec, beta):
         # compute gradient of free energy of all UAVs w.r.t sched_mat, speed
@@ -504,15 +413,6 @@ class MARS():
                 # U[dropped_indices] == 0.0 # no control for unvisited nodes
             ]
         else:
-            # get collision avoidance CBF and its dot
-            # H, Grad_H = self.CBF_waypoints(sched_mat, self.active_waypoints, returnGrad=True)
-            # H_dot_list = []
-            # for i, wp in enumerate(self.active_waypoints):
-            #     H_dot_list.append(
-            #         cp.sum(cp.multiply(Grad_H[i], cp.reshape(U[:,wp], (1,Na), order='C')), axis=1, keepdims=True)
-            #     )
-            # H_dot = cp.hstack(H_dot_list) # Na(Na+1)/2 x Nw
-
             H, Grad_H, filter_wp = self.CBF_waypoints_v1(sched_mat, self.active_waypoints, weight_mat, returnGrad=True)
             H_dot_list = []
             cnt = 0
@@ -560,84 +460,6 @@ class MARS():
             return None, None, None, None
         else:
             return U.value, F, F_dot.value, delta.value
-
-
-    # function to perform optimization iterations at a given beta
-    def optimize_schedule_trust_constr(self, init_sched_vec0, beta, gamma_t, gamma_c, coeff_t, coeff_c, filter_wp, bds, opts, allowPrintOptimize=False):
-        t0 = time.time()
-        res = minimize(self.totalCost, init_sched_vec0, 
-                        args=(beta,gamma_t,gamma_c,coeff_t,coeff_c,filter_wp), bounds=bds,
-                        method='slsqp', options=opts)
-        sched = res.x
-        cost_fun = res.fun
-        computeTime = time.time() - t0
-        return res.fun, res.x, computeTime
-
-    # function to perform optimization iterations at a given beta
-    def optimize_schedule_trust_constr_v1(self, init_sched_vec0, beta, gamma_c, coeff_c, filter_wp, bds, opts, allowPrintOptimize=False):
-        t0 = time.time()
-        res = minimize(self.totalCost_v1, init_sched_vec0, 
-                        args=(beta,gamma_c,coeff_c,filter_wp), bounds=bds,
-                        method='slsqp', options=opts)
-        sched = res.x
-        cost_fun = res.fun
-        computeTime = time.time() - t0
-        return res.fun, res.x, computeTime
-
-    # function to perform optimization iterations at a given beta
-    def optimize_slsqp_v1(
-        self, 
-        beta,
-        Tb, 
-        Vb, 
-        weight_mat,
-        stop_tol,
-        disp):
-        
-        t0 = time.time()
-        Na = self.n_agents
-        Nw = self.n_waypoints
-        xb = np.concatenate((Tb.flatten(),Vb.flatten()))
-
-        # cost function
-        F = lambda x : self.transportCost_v1(x[0:Na*Nw].reshape(-1,Nw), x[Na*Nw:], beta)
-        gradF = lambda x : self.grad_transportCost_v1(x[0:Na*Nw].reshape(-1,Nw), x[Na*Nw:], beta)
-
-        # collision avoidance constraints
-        # H = lambda x : self.CBF_waypoints(x[0:Na*Nw].reshape(-1,Nw), self.active_waypoints, returnGrad=False)[0].flatten()
-        H = lambda x : self.CBF_waypoints_v1(x[0:Na*Nw].reshape(-1,Nw), self.active_waypoints, weight_mat, returnGrad=False)[0].flatten()
-        # gradH = lambda x : self.CBF_waypoints(x[0:Na*Nw].reshape(-1,Nw), self.active_waypoints, returnGrad=True)[1].reshape(1,-1)
-
-        # collision avoidance inequality
-        # collision_avoid_ineq = {'type':'ineq', 'fun':H, 'jac':gradH}
-        collision_avoid_ineq = {'type':'ineq', 'fun':H}
-
-        # pick agent start schedules and its dot
-        start_indices = np.array([[i, a.s] for i, a in enumerate(self.agents)])
-        tup_start_indices = (start_indices[:,0], start_indices[:,1])
-
-        # schedule bounds
-        lbT, ubT = -np.inf*np.ones(Tb.shape), np.ones(Tb.shape)*self.T_upper_bound
-        lbT[tup_start_indices] = self.start_times
-
-        # bounds
-        lb = np.concatenate((lbT.flatten(), self.speed_lim_mat[:,0]))
-        ub = np.concatenate((ubT.flatten(), self.speed_lim_mat[:,1]))
-        # print(F(xb), gradF(xb).shape, xb.shape, lb.shape, ub.shape, H(xb).shape, gradH(xb).shape)
-        res = minimize(
-            F, xb,
-            # jac = gradF,
-            method='SLSQP',
-            constraints=[collision_avoid_ineq],
-            bounds = Bounds(lb, ub),
-            options={'disp':disp, 'ftol':stop_tol})
-
-        xb1 = res.x
-        Tb1 = xb1[0:Na*Nw].reshape(-1,Nw)
-        Vb1 = xb1[Na*Nw:]
-        cost_fun = res.fun
-        computeTime = time.time() - t0
-        return Tb1, Vb1, cost_fun, computeTime
 
     # optimize at given beta using CBF CLF
     def CBF_CLF_at_beta(
@@ -727,6 +549,61 @@ class MARS():
 
         return T_prev, V_prev, U, F, Fdot, tol, delta[0]
 
+
+    # function to perform optimization iterations at a given beta
+    def optimize_slsqp_v1(
+        self, 
+        beta,
+        Tb, 
+        Vb, 
+        weight_mat,
+        stop_tol,
+        disp):
+        
+        t0 = time.time()
+        Na = self.n_agents
+        Nw = self.n_waypoints
+        xb = np.concatenate((Tb.flatten(),Vb.flatten()))
+
+        # cost function
+        F = lambda x : self.transportCost_v1(x[0:Na*Nw].reshape(-1,Nw), x[Na*Nw:], beta)
+        gradF = lambda x : self.grad_transportCost_v1(x[0:Na*Nw].reshape(-1,Nw), x[Na*Nw:], beta)
+
+        # collision avoidance constraints
+        # H = lambda x : self.CBF_waypoints(x[0:Na*Nw].reshape(-1,Nw), self.active_waypoints, returnGrad=False)[0].flatten()
+        H = lambda x : self.CBF_waypoints_v1(x[0:Na*Nw].reshape(-1,Nw), self.active_waypoints, weight_mat, returnGrad=False)[0].flatten()
+        # gradH = lambda x : self.CBF_waypoints(x[0:Na*Nw].reshape(-1,Nw), self.active_waypoints, returnGrad=True)[1].reshape(1,-1)
+
+        # collision avoidance inequality
+        # collision_avoid_ineq = {'type':'ineq', 'fun':H, 'jac':gradH}
+        collision_avoid_ineq = {'type':'ineq', 'fun':H}
+
+        # pick agent start schedules and its dot
+        start_indices = np.array([[i, a.s] for i, a in enumerate(self.agents)])
+        tup_start_indices = (start_indices[:,0], start_indices[:,1])
+
+        # schedule bounds
+        lbT, ubT = -np.inf*np.ones(Tb.shape), np.ones(Tb.shape)*self.T_upper_bound
+        lbT[tup_start_indices] = self.start_times
+
+        # bounds
+        lb = np.concatenate((lbT.flatten(), self.speed_lim_mat[:,0]))
+        ub = np.concatenate((ubT.flatten(), self.speed_lim_mat[:,1]))
+        # print(F(xb), gradF(xb).shape, xb.shape, lb.shape, ub.shape, H(xb).shape, gradH(xb).shape)
+        res = minimize(
+            F, xb,
+            # jac = gradF,
+            method='SLSQP',
+            constraints=[collision_avoid_ineq],
+            bounds = Bounds(lb, ub),
+            options={'disp':disp, 'ftol':stop_tol})
+
+        xb1 = res.x
+        Tb1 = xb1[0:Na*Nw].reshape(-1,Nw)
+        Vb1 = xb1[Na*Nw:]
+        cost_fun = res.fun
+        computeTime = time.time() - t0
+        return Tb1, Vb1, cost_fun, computeTime
 
     def anneal(
         self,
@@ -834,165 +711,6 @@ class MARS():
 
         return Tb_array, Vb_array, Fb, Pb_a, chi_array, t_compute_array
 
-
-    # function to perform annealing
-    def annealing(self, beta_lims, beta_grow, sched_vec0, init_sched_bounds, optimize_opt, allowPrintAnneal=False, allowPrintOptimize=False):
-        beta = beta_lims[0]
-        beta_max = beta_lims[1]
-        gamma_t = 5
-        gamma_c = 7.5
-        coeff_t = 10000
-        coeff_c = 5.0
-        reach_mat = self.calc_agent_reach_mat(
-                sched_vec0.reshape(self.n_agents, self.n_waypoints), 
-                beta, gamma=gamma_t, coeff=coeff_t)
-        sched_vec = sched_vec0
-        filter_wp = np.ones(shape=reach_mat.shape)
-        filter_wp[reach_mat <= 1.0e-10] = 0.0
-        reach_mat_beta_data = np.array([reach_mat])
-        filter_wp_beta_data = np.array([filter_wp])
-        C_arr = [self.totalCost(sched_vec, beta, gamma_t, gamma_c, coeff_t, coeff_c, filter_wp)]
-        conflict_C_arr = np.array([self.C_wp_conflict])
-        rt_arr = [0]
-        beta_arr = [beta]
-        gamma_arr = [[gamma_t, gamma_c, coeff_t, coeff_c]]
-        lb0, ub0 = init_sched_bounds; lb=lb0; ub=ub0
-        while beta < beta_max:
-            if allowPrintAnneal:
-                print(f'\nbeta:{beta:.3e}\tgamma_t:{gamma_t:.3e}\tgamma_c:{gamma_c:.3e}\tcoeff_t:{coeff_t:.3e}\tcoeff_c:{coeff_c:.3e}')
-                print(f'filter_wp:{filter_wp.flatten()},\n\treach_mat:{np.round(reach_mat.flatten(),3)}')
-                # print(f'schedule: {np.round(sched_vec,2)}')
-                print(f'C_agents:{np.round(self.C_agents,2)},\nC_conflict:{np.round(self.C_wp_conflict,2)},\n\tcost:{C_arr[-1]:.2f}')
-                # print(f'\t:{np.round(sched_vec,2)},\n\treach_mat:{np.round(reach_mat.flatten(),3)},\n\tfilter_wp:{filter_wp.flatten()},\n\tlb:{lb}\n\tub:{ub}')
- 
-            C, sched_vec, rt = self.optimize_schedule_trust_constr(
-                                    init_sched_vec0=sched_vec, 
-                                    beta=beta, 
-                                    gamma_t=gamma_t, gamma_c=gamma_c,
-                                    coeff_t=coeff_t, coeff_c=coeff_c,
-                                    filter_wp=filter_wp,
-                                    bds=Bounds(lb,ub), opts=optimize_opt, allowPrintOptimize=allowPrintOptimize)
-
-            self.sched_mat = sched_vec.reshape(self.n_agents,self.n_waypoints)
-            sched_vec += np.random.uniform(0,0.01,len(sched_vec))
-            beta = beta * beta_grow
-            beta_arr.append(beta)
-            C_arr.append(C)
-            rt_arr.append(rt)
-            reach_mat = self.calc_agent_reach_mat(self.sched_mat, beta, gamma=gamma_t, coeff=coeff_t)
-            filter_wp = np.ones(shape=reach_mat.shape)
-            # if beta >= 1.0:
-            filter_wp[reach_mat <= 1.0e-10] = 0.0
-            lb = lb0*filter_wp.flatten()
-            ub = ub0*filter_wp.flatten()
-            sched_vec=sched_vec*filter_wp.flatten()
-            
-            reach_mat_beta_data = np.concatenate((reach_mat_beta_data,np.array([reach_mat])),axis=0)
-            filter_wp_beta_data = np.concatenate((filter_wp_beta_data,np.array([filter_wp])),axis=0)
-            conflict_C_arr = np.concatenate((conflict_C_arr, np.array([self.C_wp_conflict])),axis=0)
-            
-            # penalty parameters
-            gamma_t += 1.00
-            gamma_c += 0.00
-            coeff_t += 0.00
-            coeff_c *= 1.00
-            gamma_arr.append([gamma_t, gamma_c, coeff_t, coeff_c])
-            # if abs(C_arr[-1]-C_arr[-2])/max(abs(C_arr[-1]),1) < 1e-5:
-            #     print(f'beta:{beta:.3e},\tcost:{C_arr[-1]:.2f},\tt:{np.round(sched_vec,2)}')
-            #     print(f'stopping condition reached: rel_cost:{abs(C_arr[-1]-C_arr[-2])/abs(C_arr[-1])}')
-            #     break
-        
-        # compute final probability associations
-        Pb_a = []
-        for i,a in enumerate(self.agents):
-            Pb = a.getPathAssociations(self.sched_mat[i,:], self.dist_mat, beta, gamma_t, coeff_t)
-            Pb_a.append(Pb)
-
-        return C_arr, sched_vec, rt_arr, reach_mat_beta_data, filter_wp_beta_data, beta_arr, gamma_arr, conflict_C_arr, Pb_a
-
-
-    # function to perform annealing
-    def annealing_v1(self, beta_lims, beta_grow, sched_vec0, init_sched_bounds, optimize_opt, allowPrintAnneal=False, allowPrintOptimize=False):
-        beta = beta_lims[0]
-        beta_max = beta_lims[1]
-        gamma_c = 7.5
-        coeff_c = 5.0
-        reach_mat = self.calc_agent_reach_mat_v1(
-                sched_vec0.reshape(self.n_agents, self.n_waypoints), beta)
-        sched_vec = sched_vec0
-        filter_wp = np.ones(shape=reach_mat.shape)
-        filter_wp[reach_mat <= 1.0e-10] = 0.0
-        reach_mat_beta_data = np.array([reach_mat])
-        filter_wp_beta_data = np.array([filter_wp])
-        C_arr = [self.totalCost_v1(sched_vec, beta, gamma_c, coeff_c, filter_wp)]
-        conflict_C_arr = np.array([self.C_wp_conflict])
-        rt_arr = [0]
-        beta_arr = [beta]
-        gamma_arr = [[gamma_c, coeff_c]]
-        lb0, ub0 = init_sched_bounds; lb=lb0; ub=ub0
-
-        while beta < beta_max:
-            if allowPrintAnneal:
-                print(f'\nbeta:{beta:.3e}\tgamma_c:{gamma_c:.3e}\tcoeff_c:{coeff_c:.3e}')
-                print(f'filter_wp:{filter_wp.flatten()},\n\treach_mat:{np.round(reach_mat.flatten(),3)}')
-                print(f'C_agents:{np.round(self.C_agents,2)},\nC_conflict:{np.round(self.C_wp_conflict,2)},\n\tcost:{C_arr[-1]:.2f}')
- 
-            C, sched_vec, rt = self.optimize_schedule_trust_constr_v1(
-                                    init_sched_vec0=sched_vec, 
-                                    beta=beta, 
-                                    gamma_c=gamma_c,
-                                    coeff_c=coeff_c,
-                                    filter_wp=filter_wp,
-                                    bds=Bounds(lb,ub), 
-                                    opts=optimize_opt, 
-                                    allowPrintOptimize=allowPrintOptimize)
-
-            self.sched_mat = sched_vec.reshape(self.n_agents,self.n_waypoints)
-            sched_vec += np.random.uniform(0,0.01,len(sched_vec))
-            beta = beta * beta_grow
-            beta_arr.append(beta)
-            C_arr.append(C)
-            rt_arr.append(rt)
-            reach_mat = self.calc_agent_reach_mat_v1(self.sched_mat, beta)
-            filter_wp = np.ones(shape=reach_mat.shape)
-            # if beta >= 1.0:
-            filter_wp[reach_mat <= 1.0e-10] = 0.0
-            lb = lb0*filter_wp.flatten()
-            ub = ub0*filter_wp.flatten()
-            sched_vec=sched_vec*filter_wp.flatten()
-            
-            reach_mat_beta_data = np.concatenate((reach_mat_beta_data, np.array([reach_mat])),axis=0)
-            filter_wp_beta_data = np.concatenate((filter_wp_beta_data, np.array([filter_wp])),axis=0)
-            conflict_C_arr = np.concatenate((conflict_C_arr, np.array([self.C_wp_conflict])),axis=0)
-            
-            # penalty parameters
-            gamma_c += 0.00
-            coeff_c *= 1.00
-            gamma_arr.append([gamma_c, coeff_c])
-        
-        # compute final probability associations
-        Pb_a = []
-        for i,a in enumerate(self.agents):
-            Pb = a.getPathAssociations_v1(self.sched_mat[i,:], self.dist_mat, beta)
-            Pb_a.append(Pb)
-
-        return C_arr, sched_vec, rt_arr, reach_mat_beta_data, filter_wp_beta_data, beta_arr, gamma_arr, conflict_C_arr, Pb_a
-
-
-# def calc_agent_routes_and_schedules(mars:MARS, Pb_a:list, printRoutes=False):
-#     routes = []
-#     fin_schedules = []
-#     fin_speeds = []
-    
-#     for i,a in enumerate(mars.agents):
-#         a.calc_route_and_schedule(sched=mars.sched_mat[i,:], dist_mat=mars.dist_mat, Pb=Pb_a[i])
-#         routes.append(a.route)
-#         fin_schedules.append(a.fin_sched)
-#         fin_speeds.append(a.fin_avg_speed)
-#         if printRoutes:
-#             print(f'route v{i}: {a.route}, \tschedule: {np.round(a.fin_sched,2)}, \tagent_speed: {mars.speed_vec[i]:.2f}, \tmean_spd: {a.fin_avg_speed:.2f}, \tmax_spd: {np.max(a.route_speed):.2f}, \tmean_spd1: {a.speed:.2f}, \tspeed_lim: {np.round(mars.speed_lim_mat[i],2)}')
-
-#     return routes, fin_schedules
 
 def calc_agent_routes_and_schedules(mars:MARS, Pb_a:list, printRoutes=False):
     routes = []
@@ -1109,7 +827,7 @@ def plotNetwork(mars:MARS, figuresize, routes, agent_colors, showEdgeLength=True
             label = ', '.join([rf'$a_{{{i}}}$' for i in agents])  # Combined label for multiple agents
         else:
             label = rf'$a_{{{agents[0]}}}$'
-        plt.text(start_x+0.5, start_y+0.5, label, color='darkgreen', fontsize=18,
+        plt.text(start_x+0.0, start_y+0.0, label, color='darkgreen', fontsize=18,
                 ha='left', va='top', fontweight='bold')
     for dest_idx, agents in destination_groups.items():
         dest_x, dest_y = wp_xy[dest_idx]
@@ -1117,7 +835,7 @@ def plotNetwork(mars:MARS, figuresize, routes, agent_colors, showEdgeLength=True
             label = ', '.join([rf'$a_{{{i}}}$' for i in agents])  # Combined label for multiple agents
         else:
             label = rf'$a_{{{agents[0]}}}$'
-        plt.text(dest_x + 0.5, dest_y + 0.5, label, color='red', fontsize=18,
+        plt.text(dest_x + 0.0, dest_y + 0.0, label, color='red', fontsize=18,
                 ha='left', va='bottom', fontweight='bold')
 
     # Draw each agent's path

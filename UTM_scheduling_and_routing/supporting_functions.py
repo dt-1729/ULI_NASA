@@ -183,8 +183,9 @@ def generate_non_uniform_grid_graph_numpy(params):
 
         while added < extra_connections and attempts < max_attempts:
             node = np.random.randint(0, n_points)
-            dists, neighbors = tree.query(points[node], k=10)
-
+            k = min(10, n_points)
+            dists, neighbors = tree.query(points[node], k=k)
+            
             for neighbor in neighbors[1:]:
                 if adj[node, neighbor] == 0:
                     adj[node, neighbor] = 1
