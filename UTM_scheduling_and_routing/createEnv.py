@@ -319,7 +319,7 @@ class MARS():
         elif self.ca_cbf['mode'] == 'rect':
             w, h, gamma = self.ca_cbf['width'], self.ca_cbf['height'], self.ca_cbf['gamma']
             ew, eh = self.ca_cbf['width_correction_fac'], self.ca_cbf['height_correction_fac']
-
+            # print(f'inside_rect')
             for i, wp in enumerate(waypoints):
                 n_active_agents = int(sum(filter_wp[:,wp]))
                 if n_active_agents > 1:
@@ -403,8 +403,12 @@ class MARS():
         start_indices = np.array([[i, a.s] for i, a in enumerate(self.agents)])
         tup_start_indices = (start_indices[:,0], start_indices[:,1])
 
-        # bypass CBF constraint if no waypoint is active
-        if self.active_waypoints == [] or self.active_waypoints == None:
+        # compute conflict barrier functions
+        H, Grad_H, filter_wp = self.CBF_waypoints_v1(sched_mat, self.active_waypoints, weight_mat, returnGrad=True)
+
+        # bypass CBF constraint if no conflicts recorded in H
+        # if self.active_waypoints == [] or self.active_waypoints == None:
+        if len(H) == 0:
             constraints = [
                 F_dot <= -gamma * F + delta, # to decrease free energy
                 H_speed_dot >= -alpha_s * H_speed, # speed limit constraint
@@ -413,7 +417,7 @@ class MARS():
                 # U[dropped_indices] == 0.0 # no control for unvisited nodes
             ]
         else:
-            H, Grad_H, filter_wp = self.CBF_waypoints_v1(sched_mat, self.active_waypoints, weight_mat, returnGrad=True)
+            # H, Grad_H, filter_wp = self.CBF_waypoints_v1(sched_mat, self.active_waypoints, weight_mat, returnGrad=True)
             H_dot_list = []
             cnt = 0
             for wp in self.active_waypoints:
@@ -424,6 +428,7 @@ class MARS():
                         cp.sum(cp.multiply(Grad_H[cnt:cnt+n_conflicts], cp.reshape(U[:,wp], (1,Na), order='C')), axis=1, keepdims=True)
                     )
                     cnt += n_conflicts
+            # print(H, Grad_H, H_dot_list)
             H_dot = cp.vstack(H_dot_list) 
             H_dot = cp.reshape(H_dot, (-1,), order='C')
 
@@ -683,6 +688,8 @@ class MARS():
                 
                 if annealPrint:
                     print(f'\nbeta: {beta:.4e}\tcost: {Fb:.3f}\ttolb: {tolb:.3e}\tn_active_waypoints:{len(self.active_waypoints)}\ttol_mag:{self.tolArray[0]:.2f}\tHbshape:{Hb.shape}')
+
+                print(Hb, GradHb)
 
             elif optimizer['name'] == 'SLSQP':
                 Tb, Vb, Fb, compute_time = self.optimize_slsqp_v1(

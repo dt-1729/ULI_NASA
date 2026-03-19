@@ -1,5 +1,11 @@
 import gurobipy as gp
 from gurobipy import GRB
+import numpy as np
+from matplotlib.cm import get_cmap 
+from matplotlib import cm  # for colormap
+import matplotlib as mpl
+import matplotlib.pyplot as plt 
+
 
 class MIRS_Gurobi:
     def __init__(
@@ -233,32 +239,96 @@ class MIRS_Gurobi:
 
         return gp.quicksum(V)
 
-    def optimize(self, time_limit=600, mip_gap=0.05):
+
+    # -------------------------
+    # Stagnation callback
+    # -------------------------
+    def _stagnation_callback(self, model, where):
         """
-        Set solver parameters, define objective, and optimize the model.
+        Terminates the optimization if incumbent cost hasn't improved much.
+        """
+        if where == GRB.Callback.MIP:
+            new_obj = model.cbGet(GRB.Callback.MIP_OBJBST)
+
+            if new_obj is None:
+                # No feasible solution yet
+                return
+
+            # Initialize if first valid incumbent
+            if self._best_incumbent is None:
+                self._best_incumbent = new_obj
+                self._stagnation_counter = 0
+            else:
+                # Check improvement
+                if abs(new_obj - self._best_incumbent) > 1e-6:
+                    self._best_incumbent = new_obj
+                    self._stagnation_counter = 0
+                else:
+                    self._stagnation_counter += 1
+
+            # Terminate if stagnated for too long
+            if self._stagnation_counter >= getattr(self, "_stagnation_limit", 50):
+                model.terminate()
+
+    # -------------------------
+    # Optimize method
+    # -------------------------
+    def optimize(self, time_limit=600, mip_gap=0.05, stagnation_limit=50):
+        """
+        Optimize the model with early stopping based on stagnation.
         """
 
-        # --- Solver parameters ---
-        self.model.setParam("NonConvex", 2)
+        # Solver parameters
+        self.model.Params.NonConvex = 2
+        self.model.Params.TimeLimit = time_limit
+        self.model.Params.MIPGap = mip_gap
 
-        self.model.setParam("TimeLimit", time_limit)
-        self.model.setParam("MIPGap", mip_gap)
+        self.model.Params.MIPFocus = 1
+        self.model.Params.Heuristics = 0.8
+        self.model.Params.Cuts = 2
+        self.model.Params.OBBT = 2
+        self.model.Params.NumericFocus = 2
+        self.model.Params.Presolve = 2
 
-        self.model.setParam("MIPFocus", 1)
-        self.model.setParam("Heuristics", 0.8)
+        # Stagnation limit
+        self._stagnation_limit = stagnation_limit
+        self._best_incumbent = None
+        self._stagnation_counter = 0
 
-        self.model.setParam("Cuts", 2)
-        self.model.setParam("OBBT", 2)
-
-        self.model.setParam("NumericFocus", 2)
-        self.model.setParam("Presolve", 2)
-
-        # --- Objective ---
+        # Objective
         obj = self.compute_total_cost()
         self.model.setObjective(obj, GRB.MINIMIZE)
 
-        # --- Optimize ---
-        self.model.optimize()
+        # Optimize with callback
+        self.model.optimize(self._stagnation_callback)
+
+
+    # def optimize(self, time_limit=600, mip_gap=0.05):
+    #     """
+    #     Set solver parameters, define objective, and optimize the model.
+    #     """
+
+    #     # --- Solver parameters ---
+    #     self.model.setParam("NonConvex", 2)
+
+    #     self.model.setParam("TimeLimit", time_limit)
+    #     self.model.setParam("MIPGap", mip_gap)
+
+    #     self.model.setParam("MIPFocus", 1)
+    #     self.model.setParam("Heuristics", 0.8)
+
+    #     self.model.setParam("Cuts", 2)
+    #     self.model.setParam("OBBT", 2)
+
+    #     self.model.setParam("NumericFocus", 2)
+    #     self.model.setParam("Presolve", 2)
+
+    #     # --- Objective ---
+    #     obj = self.compute_total_cost()
+    #     self.model.setObjective(obj, GRB.MINIMIZE)
+
+    #     # --- Optimize ---
+    #     self.model.optimize()
 
 
     def print_solution(self):
@@ -266,9 +336,13 @@ class MIRS_Gurobi:
         Prints the optimized solution in a structured format.
         """
 
-        if self.model.Status not in [GRB.OPTIMAL, GRB.TIME_LIMIT, GRB.SUBOPTIMAL]:
-            print("No solution available.")
+        if self.model.SolCount == 0:
+            print("No feasible solution found yet.")
             return
+
+        # if self.model.Status not in [GRB.OPTIMAL, GRB.TIME_LIMIT, GRB.SUBOPTIMAL]:
+        #     print("No solution available.")
+        #     return
 
         print("\n=== SOLUTION SUMMARY ===")
 
@@ -315,3 +389,258 @@ class MIRS_Gurobi:
 
     def get_model(self):
         return self.model
+
+
+    def extract_routes_and_schedules(self):
+        """
+        Extract agent routes, schedules, schedule matrix, and association matrix
+        from the Gurobi solution, ensuring no repeated waypoints and integer indices.
+
+        Returns:
+            agent_routes      : list of lists of waypoint IDs per agent
+            agent_schedules   : list of lists of theta values per agent
+            schedule_matrix   : n_agents x n_waypoints matrix of theta
+            association_mat   : n_agents x n_waypoints matrix of 0/1
+        """
+        if self.model.SolCount == 0:
+            print("No feasible solution to extract.")
+            return None, None, None, None
+
+        n_agents = self.N
+        n_waypoints = self.M
+
+        agent_routes = []
+        agent_schedules = []
+        schedule_matrix = [[0.0 for _ in range(n_waypoints)] for _ in range(n_agents)]
+        association_mat = [[0 for _ in range(n_waypoints)] for _ in range(n_agents)]
+
+        for n in range(n_agents):
+            route = []
+            schedule = [0.0]
+            visited = set()  # Track visited waypoints to avoid repetition
+
+            s, d = self.start_goal[n]
+            current_wp = int(s)
+            route.append(current_wp)
+            schedule.append(self.theta[n,current_wp].X)
+            visited.add(current_wp)
+            association_mat[n][current_wp] = 1
+            schedule_matrix[n][current_wp] = self.theta[n,current_wp].X
+
+            # Traverse stages
+            for k in range(self.K):
+                next_wp = None
+                for i in range(self.stage_sizes[k]):
+                    for j in range(self.stage_sizes[k+1]):
+                        eta_val = self.eta[n,k,i,j].X
+                        if eta_val > 0.5:
+                            # Determine the index corresponding to current_wp
+                            if k == 0:
+                                idx_i = int(s)
+                            else:
+                                idx_i = int(i)
+                            if idx_i == current_wp:
+                                next_wp = int(j)
+                                break
+                    if next_wp is not None:
+                        break
+
+                if next_wp is None or next_wp in visited:
+                    # Stop if no next stage or waypoint already visited
+                    break
+
+                current_wp = next_wp
+                route.append(current_wp)
+                schedule.append(self.theta[n,current_wp].X)
+                visited.add(current_wp)
+                association_mat[n][current_wp] = 1
+                schedule_matrix[n][current_wp] = self.theta[n,current_wp].X
+
+            agent_routes.append(route)
+            agent_schedules.append(schedule)
+
+        return agent_routes, agent_schedules, np.array(schedule_matrix), association_mat
+
+
+    def plot_waypoint_agent_schedules(
+        self,routes, schedules, schedule_matrix, association_matrix,
+        process_T, tolArray, agent_colors, figuresize,
+        bar_thickness=0.1, marker_size=8, start_marker_size=15, index_size=24,
+        x_tick_size=20, y_tick_size=20, x_label_size=20, y_label_size=20
+    ):
+        """
+        Visualizes:
+        1. Vehicle routes and their schedules over time (top subplot)
+        2. Waypoint occupancy timelines and conflicts (bottom subplot)
+        """
+
+        # ------------------------------------------------------------
+        # Helper: Assign distinct colors to each vertex
+        # ------------------------------------------------------------
+        unique_vertices = sorted(set(v for route in routes for v in route))
+        num_vertices = len(unique_vertices)
+        cmap_vertices = get_cmap('Dark2')
+        vertex_colors = {v: cmap_vertices(i / num_vertices) for i, v in enumerate(unique_vertices)}
+
+        plt.figure(figsize=figuresize)
+
+        # ------------------------------------------------------------
+        # Subplot 1: Vehicle timelines
+        # ------------------------------------------------------------
+        plt.subplot(1, 2, 1)
+        num_vehicles = len(routes)
+        plt.ylim(-0.5, num_vehicles - 0.1)
+
+        for vehicle_id in range(num_vehicles):
+            route = routes[vehicle_id]
+            schedule = schedules[vehicle_id]
+            t_process = process_T[vehicle_id]
+            y = vehicle_id
+
+            # --- Start Marker (gray triangle pointing right) ---
+            start_time = schedule[0]
+            departure_time_first = schedule[1]
+            plt.plot(start_time, y, '>', color='grey', markersize=start_marker_size,
+                    markeredgewidth=1.5, alpha=0.3, zorder=5)
+
+            # --- Bars between consecutive events (light gray background) ---
+            for i in range(len(schedule) - 1):
+                plt.fill_betweenx(
+                    [y - bar_thickness, y + bar_thickness],
+                    schedule[i], schedule[i + 1],
+                    color='gray', alpha=0.1, zorder=1
+                )
+
+            # --- Route Vertices and Processing Durations ---
+            for i, vertex in enumerate(route):
+                color = vertex_colors[vertex]
+
+                if i == 0:
+                    # First vertex (special case: start)
+                    plt.plot(departure_time_first, y, 'o',
+                            color=color, markersize=marker_size,
+                            markeredgewidth=1.5, markerfacecolor=color, zorder=10)
+                    plt.plot(departure_time_first + t_process[vertex], y, 'o',
+                            color=color, markersize=marker_size, markerfacecolor=color, zorder=10)
+                    plt.text(departure_time_first, y + 0.1, rf'${{{vertex}}}$',
+                            color='black', fontsize=index_size, ha='center', va='bottom')
+                else:
+                    # Other vertices
+                    print(schedule, i+1)
+                    time = schedule[i + 1]  # offset because schedule[0] is start time
+                    plt.plot(time, y, 'o', color=color, markersize=marker_size,
+                            markeredgewidth=1.5, markerfacecolor=color, zorder=10)
+                    plt.fill_betweenx([y - bar_thickness, y + bar_thickness],
+                                    time, time + t_process[vertex],
+                                    color='violet', alpha=0.1, zorder=1)
+                    plt.plot(time + t_process[vertex], y, 'o', color=color,
+                            markersize=marker_size, markerfacecolor=color, zorder=10)
+                    plt.text(time, y + 0.1, rf'${{{vertex}}}$',
+                            color='black', fontsize=index_size, ha='center', va='bottom')
+
+        # --- Vertex Color Legend ---
+        for vertex, color in vertex_colors.items():
+            plt.plot([], [], 'o', color=color, label=f"Vertex {vertex}")
+
+        plt.ylabel(r"$a_j$", fontsize=y_label_size)
+        plt.yticks(range(num_vehicles), [rf"${{{i}}}$" for i in range(num_vehicles)], fontsize=y_tick_size)
+        plt.xticks(fontsize=x_tick_size)
+        plt.grid(axis='x', linestyle='--', alpha=0.7)
+        plt.grid(axis='y', linestyle='--', alpha=0.3)
+        plt.tight_layout()
+
+        # ------------------------------------------------------------
+        # Subplot 2: Waypoint timelines (conflict visualization)
+        # ------------------------------------------------------------
+        plt.subplot(1, 2, 2)
+
+        cmap = cm.get_cmap('RdYlGn')  # green (safe) → yellow → red (conflict)
+        na, nwp = association_matrix.shape
+        tick_wp = []
+        count = 0
+
+        for waypoint_idx in range(nwp):
+            # Skip waypoints not visited by any agent
+            if association_matrix[:, waypoint_idx].sum() <= 0.0:
+                continue
+
+            # Agents visiting this waypoint
+            agent_indices = np.where(association_matrix[:, waypoint_idx] == 1.0)[0]
+            schedule_times = schedule_matrix[agent_indices, waypoint_idx]
+
+            # Sort by arrival time
+            sorted_indices = np.argsort(schedule_times)
+            sorted_agents = agent_indices[sorted_indices]
+            sorted_times = schedule_times[sorted_indices]
+            tol = tolArray[waypoint_idx]
+
+            # --- Draw bars between consecutive arrivals, color-coded by gap ---
+            for i in range(len(sorted_times) - 1):
+                t1, t2 = sorted_times[i], sorted_times[i + 1]
+                gap = t2 - t1
+
+                # Nonlinear normalized ratio: 0=red (conflict), 1=green (safe)
+                ratio = np.clip((gap - tol + 0.1 * tol) / tol, 0, 1) ** 0.3
+                color = cmap(ratio)
+
+                plt.fill_betweenx(
+                    [count - bar_thickness, count + bar_thickness],
+                    t1, t2,
+                    color=color, alpha=0.8, zorder=1
+                )
+
+            # --- Mark each agent's arrival ---
+            for time, agent in zip(sorted_times, sorted_agents):
+                plt.plot(time, count, 'o', markersize=marker_size,
+                        color='black', markerfacecolor='white', zorder=3)
+                plt.text(time, count + 0.1, rf'${agent}$',
+                        fontsize=index_size, ha='center', va='bottom', color='black')
+
+            tick_wp.append(waypoint_idx)
+            count += 1
+
+        # --- Axes Formatting ---
+        plt.ylim(-0.5, len(tick_wp) - 0.1)
+        plt.xlabel("Time (s)", fontsize=x_label_size)
+        plt.ylabel(r"$w_i$", fontsize=y_label_size)
+        plt.yticks(range(len(tick_wp)), [rf'${{{i}}}$' for i in tick_wp], fontsize=y_tick_size)
+        plt.xticks(fontsize=x_tick_size)
+        plt.grid(axis='x', linestyle='--', alpha=0.7)
+        plt.grid(axis='y', linestyle='--', alpha=0.3)
+        plt.tight_layout()
+
+        # ------------------------------------------------------------
+        # Colorbar (continuous legend inside the bottom subplot)
+        # ------------------------------------------------------------
+        ax = plt.gca()  # current (bottom) axes
+        norm = mpl.colors.Normalize(vmin=0, vmax=1)
+        sm = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+
+        # Create a thin inset axis inside the current subplot (no change to layout)
+        # [x0, y0, width, height] in axis coordinates (0–1)
+        cax = ax.inset_axes([0.80, 0.10, 0.02, 0.7])  # adjust height/position as needed
+
+        # Add a horizontal colorbar in that inset
+        cbar = plt.colorbar(sm, cax=cax, orientation='vertical')
+        # cbar.set_label('Gap between consecutive agent arrivals', fontsize=12, labelpad=4)
+
+        # Tick positions matching nonlinear mapping
+        ticks = [0.0, (0.1)**0.3, (1.0)**0.3, 1.0]
+        tick_labels = [
+            'Conflict (gap ≪ tol)',
+            '≈ 0.9×tol',
+            'Tolerance (gap = tol)',
+            'Safe (gap > tol)'
+        ]
+
+        cbar.set_ticks(ticks)
+        cbar.set_ticklabels(tick_labels)
+        cbar.ax.tick_params(labelsize=x_tick_size)
+
+        # Optional: draw a subtle border around the colorbar region
+        for spine in cbar.ax.spines.values():
+            spine.set_visible(True)
+            spine.set_alpha(0.3)
+
+        plt.show()
