@@ -13,7 +13,7 @@ from matplotlib import patches
 import warnings
 from scipy.optimize import LinearConstraint
 from scipy.special import *
-import supporting_functions
+import utils
 
 
 class flpoAgent():
@@ -62,12 +62,12 @@ class flpoAgent():
         assert(transitSchedMat.shape==distMat.shape)
         vmin = self.speedLim[0]
         vmax = self.speedLim[1]
-        P_up = supporting_functions.myPenaltyFunc(transitSchedMat - distMat/self.speedLim[0], gamma, coeff)
-        P_low = supporting_functions.myPenaltyFunc(distMat/self.speedLim[1] - transitSchedMat, gamma, coeff)
+        P_up = utils.myPenaltyFunc(transitSchedMat - distMat/self.speedLim[0], gamma, coeff)
+        P_low = utils.myPenaltyFunc(distMat/self.speedLim[1] - transitSchedMat, gamma, coeff)
         assert(P_up.shape == P_low.shape)
         return P_up + P_low
         # X = vmin/(vmax-vmin) * (transitSchedMat * vmax - distMat)/distMat
-        # P = supporting_functions.myPenaltyFunc1(X, coeff)
+        # P = utils.myPenaltyFunc1(X, coeff)
         # assert(P.shape == X.shape)
         # return P
 
@@ -125,16 +125,16 @@ class flpoAgent():
 
         for i in range(K):
             if i == 0: # penultimate stage to destination
-                Xi_flip[i] = c1*(dt_w2d - distMat[:,self.d].reshape(-1,1)/speed)**2 + c2*(distMat[:,self.d].reshape(-1,1)/speed)**2
+                Xi_flip[i] = c1*(dt_w2d - distMat[:,self.d].reshape(-1,1)/speed)**2 + c2*(distMat[:,self.d].reshape(-1,1)/speed)
                 Xi_flip[i][self.net_mask[:,self.d].reshape(-1,1)==0] = self.INF
                 Xi_flip[i][self.d,:] = 0
             elif i>0 and i<K-1: # internal stages
-                Xi_flip[i] = c1*(dt_w2w - distMat/speed)**2 + c2*(distMat/speed)**2
+                Xi_flip[i] = c1*(dt_w2w - distMat/speed)**2 + c2*(distMat/speed)
                 Xi_flip[i][self.net_mask == 0] = self.INF
                 Xi_flip[i][self.d, self.d] = 0.0
             elif i == K-1: # starting stage to 1st stage
                 Xi_flip[i] = np.expand_dims(
-                    c0*(sched[self.s]-self.start_time)**2 + c1*(dt_n2w - distMat[self.s,:]/speed)**2 + c2*(distMat[self.s,:]/speed)**2, axis=0)
+                    c0*(sched[self.s]-self.start_time)**2 + c1*(dt_n2w - distMat[self.s,:]/speed)**2 + c2*(distMat[self.s,:]/speed), axis=0)
                 Xi_flip[i][self.net_mask[self.s,None] == 0] = self.INF
         return Xi_flip[::-1]
 
@@ -154,10 +154,12 @@ class flpoAgent():
             G_w2w[k,:,k] = 2*c1*(sched[k] - sched - distMat[:,k]/speed)
         
         # compute gradient for w2w transitions w.r.t. speed
-        G_w2w[N_params-1] = 2*distMat/speed**2 * (c1*(sched - sched.reshape(-1,1)) - (c1+c2)*distMat/speed) 
+        # G_w2w[N_params-1] = 2*distMat/speed**2 * (c1*(sched - sched.reshape(-1,1)) - (c1+c2)*distMat/speed)
+        G_w2w[N_params-1] = distMat/speed**2 * (2*c1*(sched - sched.reshape(-1,1)) - (2*c1+c2)*distMat/speed)
 
         for i in range(K):
             if i == 0: # penultimate stage to destination
+                
                 G_flip[i] = G_w2w[:,:,self.d].reshape(-1,Nw,1)* mask[:,self.d].reshape(-1,1)
                 G_flip[i][:,self.d,:] = 0
             elif i == K-1: # start to first stage

@@ -1,0 +1,15 @@
+{
+    "name": "MEP_CBF",
+    "n_waypoints": 3,
+    "n_agents": 3,
+    "seed": 1,
+    "cost_mode": "sum",
+    "cbf_mode": "{'mode': 'rect', 'width': array([599.99781722, 599.99781722, 599.99781722]), 'height': array([3.00041915, 3.65354749, 4.57791195]), 'gamma': 1, 'width_correction_fac': 0.5, 'height_correction_fac': 0.5}",
+    "runtime_seconds": 23.726814375,
+    "final_cost": 7.493491374713698,
+    "offset_energy": 1.0,
+    "filter_wp_thresh": 0.01,
+    "prune_mode": true,
+    "created_at": "2026-07-18T19:52:05",
+    "lm": 1.0
+}
