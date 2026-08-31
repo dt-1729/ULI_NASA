@@ -1,0 +1,15 @@
+{
+  "scenario_id": "scenario_008_nwp20_na5_seed2449646",
+  "n_waypoints": 20,
+  "n_agents": 5,
+  "seed": 2449646,
+  "network_type": "grid",
+  "tol_range": [
+    5.0,
+    5.0
+  ],
+  "cost_mode": "sum",
+  "lm": 1.0,
+  "cbf_mode_name": "rect",
+  "data_file": "scenario_data.pkl"
+}

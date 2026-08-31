@@ -1,0 +1,77 @@
+{
+  "generated_at": "2026-08-31 00:39:21",
+  "root_dir": "/projects/illinois/eng/mechse/salapaka/dhananjay/ULI_NASA/UTM_scheduling_and_routing/cc_scenarios",
+  "n_scenarios": 10,
+  "scenarios": [
+    {
+      "folder": "scenario_001_nwp5_na4_seed5929478",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 5,
+      "n_agents": 4,
+      "seed": 5929478
+    },
+    {
+      "folder": "scenario_002_nwp6_na6_seed2203599",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 6,
+      "n_agents": 6,
+      "seed": 2203599
+    },
+    {
+      "folder": "scenario_003_nwp12_na4_seed3336163",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 12,
+      "n_agents": 4,
+      "seed": 3336163
+    },
+    {
+      "folder": "scenario_004_nwp10_na5_seed8120945",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 5,
+      "seed": 8120945
+    },
+    {
+      "folder": "scenario_005_nwp18_na14_seed4494658",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 18,
+      "n_agents": 14,
+      "seed": 4494658
+    },
+    {
+      "folder": "scenario_006_nwp13_na11_seed8197545",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 13,
+      "n_agents": 11,
+      "seed": 8197545
+    },
+    {
+      "folder": "scenario_007_nwp31_na14_seed250719",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 31,
+      "n_agents": 14,
+      "seed": 250719
+    },
+    {
+      "folder": "scenario_008_nwp20_na5_seed2449646",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 5,
+      "seed": 2449646
+    },
+    {
+      "folder": "scenario_009_nwp12_na11_seed7920812",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 12,
+      "n_agents": 11,
+      "seed": 7920812
+    },
+    {
+      "folder": "scenario_010_nwp11_na6_seed7414670",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 11,
+      "n_agents": 6,
+      "seed": 7414670
+    }
+  ]
+}

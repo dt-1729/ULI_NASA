@@ -1,0 +1,23 @@
+# Slurm job output logs
+slurm_logs/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Generated scenario data
+local_scenarios/

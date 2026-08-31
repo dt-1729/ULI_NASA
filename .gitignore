@@ -1,3 +1,4 @@
 .DS_Store
 UTM_scheduling_and_routing/local_scenarios/
 UTM_scheduling_and_routing/Final_Results/
+__pycache__/
