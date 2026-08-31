@@ -17,7 +17,7 @@ import utils
 import visualize
 
 
-DEFAULT_SCENARIO_ROOT = Path("generated_scenarios")
+DEFAULT_SCENARIO_ROOT = Path("local_scenarios")
 
 
 def _to_python_primitive(value: Any) -> Any:
