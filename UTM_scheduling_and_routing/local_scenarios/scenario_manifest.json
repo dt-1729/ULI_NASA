@@ -1,0 +1,77 @@
+{
+  "generated_at": "2026-08-29 18:59:10",
+  "root_dir": "generated_scenarios",
+  "n_scenarios": 10,
+  "scenarios": [
+    {
+      "folder": "scenario_001_nwp27_na7_seed7626778",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 27,
+      "n_agents": 7,
+      "seed": 7626778
+    },
+    {
+      "folder": "scenario_002_nwp32_na7_seed870364",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 32,
+      "n_agents": 7,
+      "seed": 870364
+    },
+    {
+      "folder": "scenario_003_nwp28_na2_seed1333923",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 28,
+      "n_agents": 2,
+      "seed": 1333923
+    },
+    {
+      "folder": "scenario_004_nwp32_na11_seed4559574",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 32,
+      "n_agents": 11,
+      "seed": 4559574
+    },
+    {
+      "folder": "scenario_005_nwp35_na8_seed7121628",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 35,
+      "n_agents": 8,
+      "seed": 7121628
+    },
+    {
+      "folder": "scenario_006_nwp11_na7_seed5046428",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 11,
+      "n_agents": 7,
+      "seed": 5046428
+    },
+    {
+      "folder": "scenario_007_nwp16_na15_seed9696862",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 16,
+      "n_agents": 15,
+      "seed": 9696862
+    },
+    {
+      "folder": "scenario_008_nwp16_na12_seed9529463",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 16,
+      "n_agents": 12,
+      "seed": 9529463
+    },
+    {
+      "folder": "scenario_009_nwp19_na11_seed5618507",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 19,
+      "n_agents": 11,
+      "seed": 5618507
+    },
+    {
+      "folder": "scenario_010_nwp12_na9_seed1074029",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 12,
+      "n_agents": 9,
+      "seed": 1074029
+    }
+  ]
+}
