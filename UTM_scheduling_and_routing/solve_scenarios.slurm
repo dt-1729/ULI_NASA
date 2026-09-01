@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=dtiwari2-ic
-#SBATCH --partition=csl
+#SBATCH --partition=IllinoisComputes
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
@@ -20,9 +20,9 @@ cd "$SLURM_SUBMIT_DIR"
 mkdir -p slurm_logs
 
 # Configuration
-SCENARIO_ROOT="${SCENARIO_ROOT:-$SLURM_SUBMIT_DIR/cc_scenarios}"
+SCENARIO_ROOT="${SCENARIO_ROOT:-$SLURM_SUBMIT_DIR/cc_scenarios_small}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
-METHODS=("cbf" "slsqp" "gurobi")
+METHODS=("gurobi")
 TIME_LIMIT="${TIME_LIMIT:-3600}"
 
 # List all scenario directories
