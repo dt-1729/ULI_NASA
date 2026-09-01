@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 import random
 from scipy.spatial.distance import cdist
@@ -738,18 +739,18 @@ def get_cbf_mode(name, tolArray):
             'width_correction_fac':0.5,
             'height_correction_fac':0.5
         }
-    elif name == "lin":
-        # linear cbf mode
+    elif name == "lin_static":
+        # static linear cbf mode used only for cbf_static / slsqp_static solves
         mode = {
-            'mode':'linear',
+            'mode':'lin_static',
             'eps':1e-4*tolArray,
             'eta':0
         }
     return mode
 
 def set_mep_opt_config(solver_name):
-    if solver_name == "cbf":
-        optim_config = {
+    if solver_name in {"cbf", "cbf_static"}:
+        base_cbf_config = {
             'name':'cbf_clf',
             'dt_init':0.01,
             'dt_min':1e-6,
@@ -772,18 +773,26 @@ def set_mep_opt_config(solver_name):
                 'eps_prim_inf': 1e-2,      # Adjust primal infeasibility tolerance
                 'eps_dual_inf': 1e-2,      # Adjust dual infeasibility tolerance
                 'verbose': False           # Enable verbose output to track solver progress
-            }   
+            }
         }
-    elif solver_name == "slsqp":
-        optim_config = { 
-            'name':'slsqp', 
-            'stop_tol':1e-3, 
+        if solver_name == "cbf_static":
+            optim_config = copy.deepcopy(base_cbf_config)
+            optim_config['alpha_c'] = 1
+        else:
+            optim_config = base_cbf_config
+    elif solver_name in {"slsqp", "slsqp_static"}:
+        base_slsqp_config = {
+            'name':'slsqp',
+            'stop_tol':1e-3,
             'disp':False,
             'maxiter':1e3
         }
-    
+        optim_config = copy.deepcopy(base_slsqp_config) if solver_name == "slsqp_static" else base_slsqp_config
+    else:
+        raise ValueError(f"Unsupported solver name: {solver_name}")
+
     anneal_config = {
-        'log_bmin':-6,
+        'log_bmin':-5,
         'log_bmax':3,
         'nb':20,
         'ra':0.01,
