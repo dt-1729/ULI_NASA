@@ -18,12 +18,12 @@ mkdir -p slurm_logs
 
 # Override these with sbatch --export or by editing the submission command.
 PYTHON_BIN="${PYTHON_BIN:-python}"
-SCENARIO_ROOT="${SCENARIO_ROOT:-$SLURM_SUBMIT_DIR/cc_scenarios}"
+SCENARIO_ROOT="${SCENARIO_ROOT:-$SLURM_SUBMIT_DIR/cc_scenarios_small}"
 N_SCENARIOS="${N_SCENARIOS:-10}"
-MIN_WAYPOINTS="${MIN_WAYPOINTS:-5}"
-MAX_WAYPOINTS="${MAX_WAYPOINTS:-35}"
+MIN_WAYPOINTS="${MIN_WAYPOINTS:-3}"
+MAX_WAYPOINTS="${MAX_WAYPOINTS:-10}"
 MIN_AGENTS="${MIN_AGENTS:-2}"
-MAX_AGENTS="${MAX_AGENTS:-15}"
+MAX_AGENTS="${MAX_AGENTS:-5}"
 SEED="${SEED:-123}"
 
 mkdir -p "$SCENARIO_ROOT"
