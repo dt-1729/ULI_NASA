@@ -141,9 +141,15 @@ def solve_cbf_scenario(
     V0 = np.array(initial_conditions["V0"], dtype=float)
     active_waypoints = list(initial_conditions["active_waypoints"])
 
-    optimizer_specs = scenario_data["optimizer_specs"]["cbf_mep"]
-    optim_config = optimizer_specs["config"]
-    anneal_config = optimizer_specs["anneal_config"]
+    key = "cbf_static_mep" if method_name == "cbf_static" else "cbf_mep"
+    optimizer_specs = scenario_data["optimizer_specs"].get(key)
+    if optimizer_specs is None:
+        config_name = "cbf_static" if method_name == "cbf_static" else "cbf"
+        optim_config, anneal_config = utils.set_mep_opt_config(config_name)
+        optimizer_specs = {"config": optim_config, "anneal_config": anneal_config}
+    else:
+        optim_config = optimizer_specs["config"]
+        anneal_config = optimizer_specs["anneal_config"]
 
     t0 = time.time()
     optimizer = mep_opt.MIRSOptimizer(mirs, optim_config, anneal_config)
@@ -211,9 +217,15 @@ def solve_slsqp_scenario(
     V0 = np.array(initial_conditions["V0"], dtype=float)
     active_waypoints = list(initial_conditions["active_waypoints"])
 
-    optimizer_specs = scenario_data["optimizer_specs"]["slsqp_mep"]
-    optim_config = optimizer_specs["config"]
-    anneal_config = optimizer_specs["anneal_config"]
+    key = "slsqp_static_mep" if method_name == "slsqp_static" else "slsqp_mep"
+    optimizer_specs = scenario_data["optimizer_specs"].get(key)
+    if optimizer_specs is None:
+        config_name = "slsqp_static" if method_name == "slsqp_static" else "slsqp"
+        optim_config, anneal_config = utils.set_mep_opt_config(config_name)
+        optimizer_specs = {"config": optim_config, "anneal_config": anneal_config}
+    else:
+        optim_config = optimizer_specs["config"]
+        anneal_config = optimizer_specs["anneal_config"]
 
     t0 = time.time()
     optimizer = mep_opt.MIRSOptimizer(mirs, optim_config, anneal_config)

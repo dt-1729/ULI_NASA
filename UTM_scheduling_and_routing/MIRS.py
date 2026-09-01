@@ -48,12 +48,12 @@ class MIRS():
         self.INF = 1e8
         self.offset_energy = offset_energy
         self.selfHop = selfHop
+        self.ca_cbf = ca_cbf
         self.initProblem(wp_params, seed)
         self.stagewiseCostCoeffs = stagewiseCostCoeffs
         self.initAgents()
         self.printInitializationData(printFlag)
         self.active_waypoints = range(self.n_waypoints)
-        self.ca_cbf = ca_cbf
         self.cost_mode = cost_mode
         self.lm = lm
         self.prune_mode = prune_mode
@@ -61,7 +61,13 @@ class MIRS():
 
     def initProblem(self, wp_params:dict, seed:int):
         self.wp_locations, self.mask, self.dist_mat, self.n_waypoints, self.wp_weights = init_waypoints(wp_params, seed, self.INF)
-        self.agent_weights, self.sd_mat, self.speed_lim_mat, self.speed_vec, self.sched_mat, self.start_times, self.T_upper_bound, self.process_T = init_agent_params(self.n_agents, self.wp_locations, seed)
+        self.agent_weights, self.sd_mat, self.speed_lim_mat, self.speed_vec, self.sched_mat, self.start_times, self.T_upper_bound, self.process_T = init_agent_params(
+            self.n_agents,
+            self.wp_locations,
+            seed,
+            tolArray=self.tolArray,
+            mode=self.ca_cbf.get('mode') if isinstance(self.ca_cbf, dict) else None,
+        )
 
     def initAgents(self):
         self.agents = init_agents(

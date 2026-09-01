@@ -126,11 +126,14 @@ class MIRSOptimizer:
         result = problem.solve(solver = qp_solver_name, **qp_solver_opts)
 
         # Check the results
-        if np.isnan(problem.value).any() == True:
+        if problem.status in {"infeasible", "unbounded", "solver_error", "infeasible_inaccurate", "unbounded_inaccurate"}:
+            print(f"[get_CBF_control] solver status={problem.status} for beta={beta}, objective={problem.value}, solver={qp_solver_name}")
+            return None, None, None, None
+        if problem.value is not None and np.isnan(problem.value):
             print("Nan encountered inside get_CBF_control!")
             return None, None, None, None
         elif U.value is None or F_dot.value is None:
-            print("None type returned inside get_CBF_control!")
+            print(f"[get_CBF_control] None-type result: status={problem.status}, objective={problem.value}, solver={qp_solver_name}")
             return None, None, None, None
         else:
             return U.value, F, F_dot.value, delta.value    

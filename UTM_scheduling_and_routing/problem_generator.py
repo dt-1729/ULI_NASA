@@ -29,9 +29,11 @@ def init_waypoints(wp_params: dict, seed: int, INF:float):
 
 
 def init_agent_params(
-    n_agents, 
-    wp_locations, 
-    seed):
+    n_agents,
+    wp_locations,
+    seed,
+    tolArray=None,
+    mode=None):
 
     np.random.seed(seed)
     random.seed(seed)
@@ -46,9 +48,20 @@ def init_agent_params(
     speed_lim_mat = np.concatenate((min_speeds, max_speeds), axis=1)
     speed_vec = speed_lim_mat.mean(axis=1)
     max_time = np.max(cdist(wp_locations, wp_locations, 'euclidean')) / np.min(min_speeds)
-    sched_mat = np.random.uniform(0.0, 50.0, (n_agents, n_waypoints))
-    start_times = np.random.uniform(0.0, 0.0, n_agents)
-    sched_mat[np.arange(n_agents), sd_mat[:, 0]] = start_times
+
+    if mode == 'lin_static':
+        if tolArray is None:
+            tolArray = np.ones(n_waypoints)
+        max_tol = float(np.max(tolArray))
+        min_spacing = max_tol * 1.5 if max_tol > 0 else 1.0
+        start_times = np.arange(n_agents, dtype=float) * min_spacing
+        waypoint_drift = np.linspace(0.0, max_tol * 2.25, n_waypoints)
+        sched_mat = start_times[:, None] + waypoint_drift[None, :]
+    else:
+        sched_mat = np.random.uniform(0.0, 50.0, (n_agents, n_waypoints))
+        start_times = np.random.uniform(0.0, 0.0, n_agents)
+        sched_mat[np.arange(n_agents), sd_mat[:, 0]] = start_times
+
     T_upper_bound = 600
     process_T = np.random.uniform(3, 5, (n_agents, n_waypoints)) * 0
     process_T[np.arange(n_agents), sd_mat[:, 1]] = np.zeros(n_agents)
