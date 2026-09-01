@@ -17,7 +17,7 @@ import visualize
 
 
 DEFAULT_SCENARIO_ROOT = Path("local_scenarios")
-SUPPORTED_METHODS = ("cbf", "slsqp", "gurobi")
+SUPPORTED_METHODS = ("cbf", "slsqp", "cbf_static", "slsqp_static", "gurobi")
 
 
 def load_scenario_data(scenario_dir: Path) -> Dict[str, Any]:
@@ -49,6 +49,8 @@ def output_filename_for_method(method: str) -> str:
     mapping = {
         "cbf": "solution_cbf.pkl",
         "slsqp": "solution_slsqp.pkl",
+        "cbf_static": "solution_cbf_static.pkl",
+        "slsqp_static": "solution_slsqp_static.pkl",
         "gurobi": "solution_gurobi.pkl",
     }
     if method not in mapping:
@@ -76,7 +78,13 @@ def _base_solution_data(
         summary = {}
 
     payload = {
-        "name": {"cbf": "MEP_CBF", "slsqp": "MEP_SLSQP", "gurobi": "GUROBI"}[method],
+        "name": {
+            "cbf": "MEP_CBF",
+            "slsqp": "MEP_SLSQP",
+            "cbf_static": "MEP_CBF_STATIC",
+            "slsqp_static": "MEP_SLSQP_STATIC",
+            "gurobi": "GUROBI",
+        }[method],
         "n_agents": mirs.n_agents,
         "wp_xy": summary.get("wp_locations", mirs.wp_locations),
         "wp_params": scenario_data.get("network_params", scenario_data["mirs_constructor_kwargs"]["wp_params"]),
@@ -112,9 +120,7 @@ def _base_solution_data(
         payload["T_array"] = T_array
     if V_array is not None:
         payload["V_array"] = V_array
-    if method == "cbf":
-        payload["cbf_mode"] = scenario_data["mirs_constructor_kwargs"]["ca_cbf"]
-    if method == "slsqp":
+    if method in {"cbf", "slsqp", "cbf_static", "slsqp_static"}:
         payload["cbf_mode"] = scenario_data["mirs_constructor_kwargs"]["ca_cbf"]
 
     payload.update(extra)
@@ -126,6 +132,7 @@ def solve_cbf_scenario(
     scenario_data: Dict[str, Any],
     anneal_print: bool = False,
     time_limit: float = 3600.0,
+    method_name: str = "cbf",
 ) -> Dict[str, Any]:
     mirs = reconstruct_mirs_from_scenario(scenario_data)
 
@@ -163,7 +170,7 @@ def solve_cbf_scenario(
 
     final_cost = F_vals[-1] if isinstance(F_vals, np.ndarray) and F_vals.size > 0 else F_vals
     solution_data = _base_solution_data(
-        method="cbf",
+        method=method_name,
         scenario_data=scenario_data,
         scenario_dir=scenario_dir,
         mirs=mirs,
@@ -183,7 +190,7 @@ def solve_cbf_scenario(
         reach_mat=reach_mat,
     )
 
-    output_path = scenario_dir / output_filename_for_method("cbf")
+    output_path = scenario_dir / output_filename_for_method(method_name)
     with open(output_path, "wb") as f:
         pickle.dump(solution_data, f)
 
@@ -195,6 +202,7 @@ def solve_slsqp_scenario(
     scenario_data: Dict[str, Any],
     anneal_print: bool = False,
     time_limit: float = 3600.0,
+    method_name: str = "slsqp",
 ) -> Dict[str, Any]:
     mirs = reconstruct_mirs_from_scenario(scenario_data)
 
@@ -232,7 +240,7 @@ def solve_slsqp_scenario(
 
     final_cost = F_vals[-1] if isinstance(F_vals, np.ndarray) and F_vals.size > 0 else F_vals
     solution_data = _base_solution_data(
-        method="slsqp",
+        method=method_name,
         scenario_data=scenario_data,
         scenario_dir=scenario_dir,
         mirs=mirs,
@@ -252,7 +260,7 @@ def solve_slsqp_scenario(
         reach_mat=reach_mat,
     )
 
-    output_path = scenario_dir / output_filename_for_method("slsqp")
+    output_path = scenario_dir / output_filename_for_method(method_name)
     with open(output_path, "wb") as f:
         pickle.dump(solution_data, f)
 
@@ -310,10 +318,28 @@ def solve_scenario_by_method(
     time_limit: float = 3600.0,
 ) -> Dict[str, Any]:
     method = method.lower()
-    if method == "cbf":
-        return solve_cbf_scenario(scenario_dir, scenario_data, anneal_print=anneal_print, time_limit=time_limit)
-    if method == "slsqp":
-        return solve_slsqp_scenario(scenario_dir, scenario_data, anneal_print=anneal_print, time_limit=time_limit)
+    if method in {"cbf", "cbf_static"}:
+        original_cbf = scenario_data["mirs_constructor_kwargs"].get("ca_cbf")
+        try:
+            if method == "cbf_static":
+                scenario_data["mirs_constructor_kwargs"]["ca_cbf"] = utils.get_cbf_mode("lin_static", np.asarray(scenario_data["tol_array"]))
+            return solve_cbf_scenario(scenario_dir, scenario_data, anneal_print=anneal_print, time_limit=time_limit, method_name=method)
+        finally:
+            if original_cbf is not None:
+                scenario_data["mirs_constructor_kwargs"]["ca_cbf"] = original_cbf
+            else:
+                scenario_data["mirs_constructor_kwargs"].pop("ca_cbf", None)
+    if method in {"slsqp", "slsqp_static"}:
+        original_cbf = scenario_data["mirs_constructor_kwargs"].get("ca_cbf")
+        try:
+            if method == "slsqp_static":
+                scenario_data["mirs_constructor_kwargs"]["ca_cbf"] = utils.get_cbf_mode("lin_static", np.asarray(scenario_data["tol_array"]))
+            return solve_slsqp_scenario(scenario_dir, scenario_data, anneal_print=anneal_print, time_limit=time_limit, method_name=method)
+        finally:
+            if original_cbf is not None:
+                scenario_data["mirs_constructor_kwargs"]["ca_cbf"] = original_cbf
+            else:
+                scenario_data["mirs_constructor_kwargs"].pop("ca_cbf", None)
     if method == "gurobi":
         return solve_gurobi_scenario(scenario_dir, scenario_data, time_limit=time_limit)
     raise ValueError(f"Unsupported method '{method}'. Supported methods: {SUPPORTED_METHODS}")
@@ -356,7 +382,7 @@ def plot_scenario_solution(scenario_dir: Path, method: str, solution_data: Dict[
     for i in range(len(agent_routes)):
         agent_colors[i] = cmap(i / max(1, len(agent_routes)))
 
-    if method in {"cbf", "slsqp"}:
+    if method in {"cbf", "slsqp", "cbf_static", "slsqp_static"}:
         T_schedule = solution_data["T_array"][-1]
     elif method == "gurobi":
         T_schedule = solution_data.get("T_mat", solution_data.get("T_array"))
@@ -466,11 +492,15 @@ def compare_methods_across_scenarios(
     method_labels = {
         "cbf": "CBF",
         "slsqp": "SLSQP",
+        "cbf_static": "CBF Static",
+        "slsqp_static": "SLSQP Static",
         "gurobi": "Gurobi",
     }
     method_colors = {
         "cbf": "tab:blue",
         "slsqp": "tab:orange",
+        "cbf_static": "tab:cyan",
+        "slsqp_static": "tab:brown",
         "gurobi": "tab:green",
     }
 
@@ -532,7 +562,7 @@ def parse_args() -> argparse.Namespace:
         "--method",
         choices=SUPPORTED_METHODS,
         default="cbf",
-        help="Optimizer to run: cbf, slsqp, or gurobi.",
+        help="Optimizer to run: cbf, slsqp, cbf_static, slsqp_static, or gurobi.",
     )
     parser.add_argument(
         "--scenario-root",
@@ -556,7 +586,7 @@ def parse_args() -> argparse.Namespace:
         nargs="+",
         choices=SUPPORTED_METHODS,
         default=None,
-        help="Methods to include in compare mode. Defaults to all methods when omitted. Options: cbf slsqp gurobi.",
+        help="Methods to include in compare mode. Defaults to all methods when omitted. Options: cbf slsqp cbf_static slsqp_static gurobi.",
     )
     parser.add_argument(
         "--time-limit",

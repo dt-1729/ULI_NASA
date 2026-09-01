@@ -738,17 +738,17 @@ def get_cbf_mode(name, tolArray):
             'width_correction_fac':0.5,
             'height_correction_fac':0.5
         }
-    elif name == "lin":
-        # linear cbf mode
+    elif name == "lin_static":
+        # static linear cbf mode used only for cbf_static / slsqp_static solves
         mode = {
-            'mode':'linear',
+            'mode':'lin_static',
             'eps':1e-4*tolArray,
             'eta':0
         }
     return mode
 
 def set_mep_opt_config(solver_name):
-    if solver_name == "cbf":
+    if solver_name in {"cbf", "cbf_static"}:
         optim_config = {
             'name':'cbf_clf',
             'dt_init':0.01,
@@ -774,7 +774,7 @@ def set_mep_opt_config(solver_name):
                 'verbose': False           # Enable verbose output to track solver progress
             }   
         }
-    elif solver_name == "slsqp":
+    elif solver_name in {"slsqp", "slsqp_static"}:
         optim_config = { 
             'name':'slsqp', 
             'stop_tol':1e-3, 

@@ -120,6 +120,8 @@ def build_optimizer_payload() -> Dict[str, Any]:
     """Return the optimizer configuration used by the project."""
     cbf_config, anneal_config = utils.set_mep_opt_config("cbf")
     slsqp_config, _ = utils.set_mep_opt_config("slsqp")
+    cbf_static_config, _ = utils.set_mep_opt_config("cbf_static")
+    slsqp_static_config, _ = utils.set_mep_opt_config("slsqp_static")
 
     return {
         "cbf_mep": {
@@ -127,14 +129,28 @@ def build_optimizer_payload() -> Dict[str, Any]:
             "anneal_config": anneal_config,
             "entry_point": "mep_opt.MIRSOptimizer",
             "method_name": "CBF_CLF_at_beta",
-            "note": "Uses the CBF-CLF fixed-beta loop from mep_opt.py.",
+            "note": "Uses the CBF-CLF fixed-beta loop from mep_opt.py on the default rect CBF mode.",
         },
         "slsqp_mep": {
             "config": slsqp_config,
             "anneal_config": anneal_config,
             "entry_point": "mep_opt.MIRSOptimizer",
             "method_name": "slsqp_at_beta",
-            "note": "Uses the SLSQP fixed-beta optimizer from mep_opt.py.",
+            "note": "Uses the SLSQP fixed-beta optimizer from mep_opt.py on the default rect CBF mode.",
+        },
+        "cbf_static_mep": {
+            "config": cbf_static_config,
+            "anneal_config": anneal_config,
+            "entry_point": "mep_opt.MIRSOptimizer",
+            "method_name": "CBF_CLF_at_beta",
+            "note": "Uses the CBF-CLF fixed-beta loop from mep_opt.py with a temporary static barrier mode override.",
+        },
+        "slsqp_static_mep": {
+            "config": slsqp_static_config,
+            "anneal_config": anneal_config,
+            "entry_point": "mep_opt.MIRSOptimizer",
+            "method_name": "slsqp_at_beta",
+            "note": "Uses the SLSQP fixed-beta optimizer from mep_opt.py with a temporary static barrier mode override.",
         },
         "gurobi": {
             "model_name": "gb_mirs_model",
@@ -375,7 +391,7 @@ def parse_args() -> argparse.Namespace:
                         help="Problem network type.")
     parser.add_argument("--cost-mode", choices=["sum", "slowest"], default="sum", help="Cost mode for the MIRS objective.")
     parser.add_argument("--lm", type=float, default=1.0, help="Slowest-agent weighting parameter.")
-    parser.add_argument("--cbf-mode-name", choices=["rect", "el", "lin"], default="rect", help="CBF mode name.")
+    parser.add_argument("--cbf-mode-name", choices=["rect", "el", "lin_static"], default="rect", help="CBF mode name.")
     parser.add_argument("--offset-energy", type=int, default=1, help="MIRS offset_energy value.")
     parser.add_argument("--self-hop", type=int, default=0, help="MIRS selfHop value.")
     parser.add_argument("--filter-wp-thresh", type=float, default=1e-10, help="Waypoint pruning threshold.")
