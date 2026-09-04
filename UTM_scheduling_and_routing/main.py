@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import MIRS
+import cbs_search
 import gb_opt
 import mep_opt
 import utils
@@ -17,7 +18,7 @@ import visualize
 
 
 DEFAULT_SCENARIO_ROOT = Path("local_scenarios")
-SUPPORTED_METHODS = ("cbf", "slsqp", "cbf_static", "slsqp_static", "gurobi")
+SUPPORTED_METHODS = ("cbf", "slsqp", "cbf_static", "slsqp_static", "gurobi", "cbs")
 
 
 def load_scenario_data(scenario_dir: Path) -> Dict[str, Any]:
@@ -52,6 +53,7 @@ def output_filename_for_method(method: str) -> str:
         "cbf_static": "solution_cbf_static.pkl",
         "slsqp_static": "solution_slsqp_static.pkl",
         "gurobi": "solution_gurobi.pkl",
+        "cbs": "solution_cbs.pkl",
     }
     if method not in mapping:
         raise ValueError(f"Unsupported method: {method}")
@@ -84,6 +86,7 @@ def _base_solution_data(
             "cbf_static": "MEP_CBF_STATIC",
             "slsqp_static": "MEP_SLSQP_STATIC",
             "gurobi": "GUROBI",
+            "cbs": "CBS",
         }[method],
         "n_agents": mirs.n_agents,
         "wp_xy": summary.get("wp_locations", mirs.wp_locations),
@@ -328,8 +331,17 @@ def solve_scenario_by_method(
     method: str,
     anneal_print: bool = False,
     time_limit: float = 3600.0,
+    cbs_time_step: float = 1.0,
+    cbs_horizon: float | None = None,
 ) -> Dict[str, Any]:
     method = method.lower()
+    if method == "cbs":
+        return cbs_search.solve_cbs_scenario(
+            scenario_dir,
+            scenario_data,
+            time_step=cbs_time_step,
+            horizon=cbs_horizon,
+        )
     if method in {"cbf", "cbf_static"}:
         original_cbf = scenario_data["mirs_constructor_kwargs"].get("ca_cbf")
         try:
@@ -357,7 +369,14 @@ def solve_scenario_by_method(
     raise ValueError(f"Unsupported method '{method}'. Supported methods: {SUPPORTED_METHODS}")
 
 
-def solve_all_scenarios(root_dir: Path, method: str, anneal_print: bool = False, time_limit: float = 3600.0) -> List[Path]:
+def solve_all_scenarios(
+    root_dir: Path,
+    method: str,
+    anneal_print: bool = False,
+    time_limit: float = 3600.0,
+    cbs_time_step: float = 1.0,
+    cbs_horizon: float | None = None,
+) -> List[Path]:
     scenario_dirs = list_scenario_dirs(root_dir)
     solved_paths: List[Path] = []
 
@@ -371,6 +390,8 @@ def solve_all_scenarios(root_dir: Path, method: str, anneal_print: bool = False,
             method,
             anneal_print=anneal_print,
             time_limit=time_limit,
+            cbs_time_step=cbs_time_step,
+            cbs_horizon=cbs_horizon,
         )
         print(
             f"[{method.upper()}] Finished {scenario_dir.name} | "
@@ -400,6 +421,8 @@ def plot_scenario_solution(scenario_dir: Path, method: str, solution_data: Dict[
         T_schedule = solution_data.get("T_mat", solution_data.get("T_array"))
         if T_schedule is None:
             T_schedule = np.array(solution_data["agent_schedules"])[:, :, 0]
+    elif method == "cbs":
+        T_schedule = solution_data["schedule_matrix"]
     else:
         raise ValueError(f"Unsupported method '{method}'")
 
@@ -507,6 +530,7 @@ def compare_methods_across_scenarios(
         "cbf_static": "CBF Static",
         "slsqp_static": "SLSQP Static",
         "gurobi": "Gurobi",
+        "cbs": "CBS",
     }
     method_colors = {
         "cbf": "tab:blue",
@@ -514,6 +538,7 @@ def compare_methods_across_scenarios(
         "cbf_static": "tab:cyan",
         "slsqp_static": "tab:brown",
         "gurobi": "tab:green",
+        "cbs": "tab:red",
     }
 
     plotting_values = {method: {"cost": [], "runtime": []} for method in methods}
@@ -574,7 +599,7 @@ def parse_args() -> argparse.Namespace:
         "--method",
         choices=SUPPORTED_METHODS,
         default="cbf",
-        help="Optimizer to run: cbf, slsqp, cbf_static, slsqp_static, or gurobi.",
+        help="Method to run: cbf, slsqp, cbf_static, slsqp_static, gurobi, or cbs.",
     )
     parser.add_argument(
         "--scenario-root",
@@ -606,6 +631,18 @@ def parse_args() -> argparse.Namespace:
         default=3600.0,
         help="Maximum wall-clock time per optimization in seconds. Default: 3600.",
     )
+    parser.add_argument(
+        "--cbs-time-step",
+        type=float,
+        default=1.0,
+        help="Time resolution for CBS vertex conflicts. Default: 1.0.",
+    )
+    parser.add_argument(
+        "--cbs-horizon",
+        type=float,
+        default=None,
+        help="Optional time horizon for CBS searches.",
+    )
     return parser.parse_args()
 
 
@@ -624,6 +661,8 @@ def main() -> None:
                 method,
                 anneal_print=args.anneal_print,
                 time_limit=args.time_limit,
+                cbs_time_step=args.cbs_time_step,
+                cbs_horizon=args.cbs_horizon,
             )
             print(f"[{method.upper()}] Solved scenario: {scenario_dir}")
             print(f"[{method.upper()}] Final cost: {solved['cost']}")
@@ -636,6 +675,8 @@ def main() -> None:
             method,
             anneal_print=args.anneal_print,
             time_limit=args.time_limit,
+            cbs_time_step=args.cbs_time_step,
+            cbs_horizon=args.cbs_horizon,
         )
         print(f"[{method.upper()}] Solved {len(solved_dirs)} scenarios under {args.scenario_root}")
         for d in solved_dirs:
