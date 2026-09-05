@@ -12,7 +12,8 @@ import numpy as np
 
 
 Vertex = Tuple[int, int]
-Constraint = Tuple[int, int, int]
+Constraint = Tuple[int, int, float, float]
+ForbiddenWindow = Tuple[int, float, float]
 
 
 def load_scenario(path: str | Path) -> Dict:
@@ -85,12 +86,38 @@ def _agent_data(scenario_data: Dict) -> Tuple[np.ndarray, np.ndarray]:
 def _default_horizon(
     scenario_data: Dict, dist_mat: np.ndarray, speed_lim_mat: np.ndarray, start_time: float
 ) -> float:
-    summary = scenario_data.get("mirs_summary", {})
-    speed_values = np.asarray(summary.get("speed_lim_mat", speed_lim_mat))
-    if speed_values.size == 0:
-        speed_values = np.ones((scenario_data["n_agents"], 2), dtype=float)
-    max_time_speed = max(float(np.min(speed_values[:, 1])), 1e-6)
-    return float(np.max(dist_mat)) / max_time_speed + start_time + 100.0
+    """Return a horizon that covers masked-graph routes for every agent."""
+    _, start_times = _agent_data(scenario_data)
+    route_arrival_bounds: List[float] = []
+
+    for agent_index in range(int(scenario_data["n_agents"])):
+        sd_mat, _ = _agent_data(scenario_data)
+        start_node = int(sd_mat[agent_index, 0])
+        goal_node = int(sd_mat[agent_index, 1])
+        adjacency, _, _, _ = build_adjacency(scenario_data, agent_index)
+
+        distances = [float("inf")] * len(adjacency)
+        distances[start_node] = 0.0
+        queue: List[Tuple[float, int]] = [(0.0, start_node)]
+        while queue:
+            distance, node = heapq.heappop(queue)
+            if distance > distances[node]:
+                continue
+            if node == goal_node:
+                break
+            for neighbor, travel_time in adjacency[node]:
+                next_distance = distance + travel_time
+                if next_distance < distances[neighbor]:
+                    distances[neighbor] = next_distance
+                    heapq.heappush(queue, (next_distance, neighbor))
+
+        if np.isfinite(distances[goal_node]):
+            route_arrival_bounds.append(float(start_times[agent_index]) + distances[goal_node])
+
+    if not route_arrival_bounds:
+        raise RuntimeError("No masked-graph route exists for any agent in the scenario.")
+
+    return max(route_arrival_bounds) + 100.0
 
 
 def search_single_agent_on_time_expanded_graph(
@@ -99,6 +126,7 @@ def search_single_agent_on_time_expanded_graph(
     time_step: float = 1.0,
     horizon: float | None = None,
     forbidden_nodes: Iterable[Vertex] | None = None,
+    forbidden_windows: Iterable[ForbiddenWindow] | None = None,
 ) -> Tuple[List[int], List[float], float]:
     if agent_index < 0 or agent_index >= scenario_data["n_agents"]:
         raise ValueError(f"agent_index out of range: {agent_index} for {scenario_data['n_agents']} agents")
@@ -115,9 +143,15 @@ def search_single_agent_on_time_expanded_graph(
         horizon = _default_horizon(scenario_data, dist_mat, speed_lim_mat, start_time)
 
     forbidden = set(forbidden_nodes or ())
+    windows = tuple(forbidden_windows or ())
     start_bucket = int(np.floor(start_time / time_step))
     start_state = (start_node, start_bucket)
     if start_state in forbidden:
+        raise RuntimeError(f"Agent {agent_index} is constrained at its start node and time.")
+    if any(
+        node == start_node and abs(start_time - center) < radius
+        for node, center, radius in windows
+    ):
         raise RuntimeError(f"Agent {agent_index} is constrained at its start node and time.")
 
     pq: List[Tuple[float, int, int]] = []
@@ -154,6 +188,11 @@ def search_single_agent_on_time_expanded_graph(
             next_state = (neighbor, next_bucket)
             if next_state in forbidden:
                 continue
+            if any(
+                node == neighbor and abs(next_time - center) < radius
+                for node, center, radius in windows
+            ):
+                continue
             if next_state in best_cost and next_time >= best_cost[next_state]:
                 continue
             best_cost[next_state] = next_time
@@ -174,16 +213,26 @@ class _CBSNode:
 def _first_vertex_conflict(
     routes: Tuple[Tuple[int, ...], ...],
     schedules: Tuple[Tuple[float, ...], ...],
-    time_step: float,
-) -> Tuple[int, int, int, int] | None:
-    occupied: Dict[Vertex, int] = {}
+    tolerances: np.ndarray,
+) -> Tuple[int, int, int, float, float, float] | None:
+    occupied: Dict[int, List[Tuple[int, float, bool]]] = {}
     for agent_index, (route, schedule) in enumerate(zip(routes, schedules)):
-        for node, arrival_time in zip(route, schedule):
-            vertex = (node, int(np.floor(arrival_time / time_step)))
-            other_agent = occupied.get(vertex)
-            if other_agent is not None and other_agent != agent_index:
-                return other_agent, agent_index, vertex[0], vertex[1]
-            occupied[vertex] = agent_index
+        for path_index, (node, arrival_time) in enumerate(zip(route, schedule)):
+            node = int(node)
+            arrival_time = float(arrival_time)
+            if node >= tolerances.size or tolerances[node] <= 0:
+                continue
+            radius = 0.9 * float(tolerances[node])
+            for other_agent, other_time, other_is_initial in occupied.get(node, []):
+                if other_agent == agent_index:
+                    continue
+                # Two agents already placed at the same start node are not
+                # schedulable by routing; generated scenarios space these starts.
+                if path_index == 0 and other_is_initial:
+                    continue
+                if abs(arrival_time - other_time) < radius:
+                    return other_agent, agent_index, node, other_time, arrival_time, radius
+            occupied.setdefault(node, []).append((agent_index, arrival_time, path_index == 0))
     return None
 
 
@@ -197,6 +246,11 @@ def search_multi_agent_cbs(
         raise ValueError(f"time_step must be positive, got {time_step}")
 
     n_agents = int(scenario_data["n_agents"])
+    summary = scenario_data.get("mirs_summary", {})
+    tolerances = np.asarray(
+        summary.get("tol_array", scenario_data.get("tol_array", np.ones(scenario_data["n_waypoints"]))),
+        dtype=float,
+    ).reshape(-1)
     initial_routes: List[Tuple[int, ...]] = []
     initial_schedules: List[Tuple[float, ...]] = []
     total_cost = 0.0
@@ -215,7 +269,7 @@ def search_multi_agent_cbs(
 
     while open_nodes:
         _, _, node = heapq.heappop(open_nodes)
-        conflict = _first_vertex_conflict(node.routes, node.schedules, time_step)
+        conflict = _first_vertex_conflict(node.routes, node.schedules, tolerances)
         if conflict is None:
             return (
                 [list(route) for route in node.routes],
@@ -223,9 +277,19 @@ def search_multi_agent_cbs(
                 node.cost,
             )
 
-        first_agent, second_agent, conflict_node, conflict_bucket = conflict
-        for constrained_agent in (first_agent, second_agent):
-            constraint = (constrained_agent, conflict_node, conflict_bucket)
+        (
+            first_agent,
+            second_agent,
+            conflict_node,
+            first_arrival,
+            second_arrival,
+            conflict_radius,
+        ) = conflict
+        for constrained_agent, forbidden_center in (
+            (first_agent, second_arrival),
+            (second_agent, first_arrival),
+        ):
+            constraint = (constrained_agent, conflict_node, forbidden_center, conflict_radius)
             if constraint in node.constraints:
                 continue
             child_constraints = node.constraints | {constraint}
@@ -237,9 +301,9 @@ def search_multi_agent_cbs(
                     constrained_agent,
                     time_step=time_step,
                     horizon=horizon,
-                    forbidden_nodes=(
-                        (node_id, bucket)
-                        for agent_id, node_id, bucket in child_constraints
+                    forbidden_windows=(
+                        (node_id, center, radius)
+                        for agent_id, node_id, center, radius in child_constraints
                         if agent_id == constrained_agent
                     ),
                 )

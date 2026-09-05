@@ -39,7 +39,8 @@ class MIRS():
         ca_cbf              :str,
         filter_wp_thresh    :float,
         prune_mode          :bool,
-        printFlag           :bool
+        printFlag           :bool,
+        T_upper_bound       :float = 10000
         ):
 
         # self.n_waypoints = n_waypoints
@@ -49,6 +50,7 @@ class MIRS():
         self.offset_energy = offset_energy
         self.selfHop = selfHop
         self.ca_cbf = ca_cbf
+        self.T_upper_bound = T_upper_bound
         self.initProblem(wp_params, seed)
         self.stagewiseCostCoeffs = stagewiseCostCoeffs
         self.initAgents()
@@ -67,6 +69,7 @@ class MIRS():
             seed,
             tolArray=self.tolArray,
             mode=self.ca_cbf.get('mode') if isinstance(self.ca_cbf, dict) else None,
+            T_upper_bound=self.T_upper_bound,
         )
 
     def initAgents(self):

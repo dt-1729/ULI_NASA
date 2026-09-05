@@ -58,6 +58,7 @@ def build_mirs_instance(
     filter_wp_thresh: float = 1e-10,
     prune_mode: bool = False,
     print_flag: bool = False,
+    T_upper_bound: float = 10000,
 ) -> Tuple[MIRS.MIRS, Dict[str, Any], Dict[str, Any]]:
     """
     Build one MIRS instance and the associated optimizer metadata.
@@ -88,6 +89,7 @@ def build_mirs_instance(
         filter_wp_thresh=filter_wp_thresh,
         prune_mode=prune_mode,
         printFlag=print_flag,
+        T_upper_bound=T_upper_bound,
     )
 
     constructor_kwargs = {
@@ -105,6 +107,7 @@ def build_mirs_instance(
         "filter_wp_thresh": filter_wp_thresh,
         "prune_mode": prune_mode,
         "printFlag": print_flag,
+        "T_upper_bound": T_upper_bound,
     }
 
     initial_conditions = {
@@ -176,6 +179,7 @@ def generate_single_scenario(
     filter_wp_thresh: float,
     prune_mode: bool,
     print_flag: bool,
+    T_upper_bound: float,
 ) -> Dict[str, Any]:
     mirs, constructor_kwargs, initial_conditions = build_mirs_instance(
         n_waypoints=n_waypoints,
@@ -192,6 +196,7 @@ def generate_single_scenario(
         filter_wp_thresh=filter_wp_thresh,
         prune_mode=prune_mode,
         print_flag=print_flag,
+        T_upper_bound=T_upper_bound,
     )
 
     scenario_dir = root_dir / _scenario_folder_name(
@@ -217,6 +222,7 @@ def generate_single_scenario(
         "self_hop": self_hop,
         "filter_wp_thresh": filter_wp_thresh,
         "prune_mode": prune_mode,
+        "T_upper_bound": T_upper_bound,
         "mirs_constructor_kwargs": constructor_kwargs,
         "initial_conditions": initial_conditions,
         "optimizer_specs": build_optimizer_payload(),
@@ -291,6 +297,7 @@ def generate_scenarios(
     filter_wp_thresh: float,
     prune_mode: bool,
     print_flag: bool,
+    T_upper_bound: float = 10000,
 ) -> List[Path]:
     if n_scenarios <= 0:
         raise ValueError("n_scenarios must be positive.")
@@ -322,6 +329,7 @@ def generate_scenarios(
             filter_wp_thresh=filter_wp_thresh,
             prune_mode=prune_mode,
             print_flag=print_flag,
+            T_upper_bound=T_upper_bound,
         )
 
         scenario_dir = output_root / _scenario_folder_name(
@@ -397,6 +405,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--filter-wp-thresh", type=float, default=1e-10, help="Waypoint pruning threshold.")
     parser.add_argument("--prune-mode", action="store_true", help="Enable waypoint pruning mode.")
     parser.add_argument("--print-flag", action="store_true", help="Enable verbose problem initialization output.")
+    parser.add_argument("--t-upper-bound", type=float, default=10000.0, help="Upper bound for waypoint schedule times.")
 
     args = parser.parse_args()
 
@@ -438,6 +447,7 @@ def main() -> None:
         filter_wp_thresh=args.filter_wp_thresh,
         prune_mode=args.prune_mode,
         print_flag=args.print_flag,
+        T_upper_bound=args.t_upper_bound,
     )
 
     print(f"Generated {len(generated_dirs)} scenarios in {output_root}")

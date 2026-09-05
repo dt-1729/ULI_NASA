@@ -15,7 +15,6 @@ from scipy.optimize import LinearConstraint
 from scipy.special import *
 import utils
 
-
 class flpoAgent():
 
     def __init__(
