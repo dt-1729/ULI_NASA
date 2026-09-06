@@ -227,9 +227,9 @@ class MIRS():
                         temp_grad = np.zeros((n_active_agents * (n_active_agents-1)//2, n_active_agents))
                         for j in range(n_active_agents-1):
                             temp_grad[start_row : start_row + n_rows, j] =  2*(p_ab[0]*KTi1)[j+1:, j] + 2*(p_ab[1]*KTi2)[j+1:, j]
-                            temp_grad[start_row : start_row + n_rows, j+1:] = np.diag(2*(p_ab[0]*KTi1)[j,j+1:]) + np.diag(2*(p_ab[1]*KTi2)[j,j+1:]) 
-                            start_row = start_row + n_rows 
-                            n_rows = n_rows-1    
+                            temp_grad[start_row : start_row + n_rows, j+1:] = np.diag(2*(p_ab[0]*KTi1)[j,j+1:]) + np.diag(2*(p_ab[1]*KTi2)[j,j+1:])
+                            start_row = start_row + n_rows
+                            n_rows = n_rows-1
                         Grad_Hi[:, filter_wp[:,wp]==1.0] = temp_grad
                         Grad_H = np.concatenate((Grad_H, Grad_Hi),axis=0)
 
@@ -250,8 +250,6 @@ class MIRS():
                         Grad_Hi = np.zeros((n_active_agents * (n_active_agents-1)//2, Na))
                         temp_grad = np.zeros((n_active_agents * (n_active_agents-1)//2, n_active_agents))
                         for j in range(n_active_agents-1):
-                            # For h_jk = (T_j - T_k)^2 - tol^2:
-                            # dh/dT_j = 2*(T_j - T_k), dh/dT_k = -2*(T_j - T_k)
                             temp_grad[start_row : start_row + n_rows, j] = 2 * KTi[j, j+1:]
                             temp_grad[start_row : start_row + n_rows, j+1:] = np.diag(-2 * KTi[j, j+1:])
                             start_row = start_row + n_rows

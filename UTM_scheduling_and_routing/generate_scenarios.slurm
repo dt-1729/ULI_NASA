@@ -3,7 +3,7 @@
 #SBATCH --partition=IllinoisComputes
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --time=00:30:00
+#SBATCH --time=02:00:00
 #SBATCH --job-name=generate-scenarios
 #SBATCH --output=slurm_logs/slurm-%x-%j.out
 #SBATCH --error=slurm_logs/slurm-%x-%j.err
@@ -17,24 +17,37 @@ cd "$SLURM_SUBMIT_DIR"
 mkdir -p slurm_logs
 
 # Override these with sbatch --export or by editing the submission command.
-PYTHON_BIN="${PYTHON_BIN:-python}"
-SCENARIO_ROOT="${SCENARIO_ROOT:-$SLURM_SUBMIT_DIR/cc_scenarios_small}"
+PYTHON_BIN="${PYTHON_BIN:-$SLURM_SUBMIT_DIR/.venv/bin/python}"
+SCENARIO_ROOT="${SCENARIO_ROOT:-$SLURM_SUBMIT_DIR/scenarios}"
 N_SCENARIOS="${N_SCENARIOS:-10}"
-MIN_WAYPOINTS="${MIN_WAYPOINTS:-3}"
-MAX_WAYPOINTS="${MAX_WAYPOINTS:-10}"
-MIN_AGENTS="${MIN_AGENTS:-2}"
-MAX_AGENTS="${MAX_AGENTS:-5}"
 SEED="${SEED:-123}"
+
+# Each entry is "number_of_waypoints:number_of_agents".  Keeping waypoint
+# and agent counts fixed per invocation creates the repository's grouped layout.
+SCENARIO_SPECS="${SCENARIO_SPECS:-8:3 12:5 15:7 20:9 25:13 25:18 30:18 35:21 40:25 40:29}"
+
+if [[ ! -x "$PYTHON_BIN" ]]; then
+    echo "ERROR: Python executable not found or not executable: $PYTHON_BIN"
+    exit 1
+fi
 
 mkdir -p "$SCENARIO_ROOT"
 
-"$PYTHON_BIN" gen_scenarios.py \
-    --output-root "$SCENARIO_ROOT" \
-    --n-scenarios "$N_SCENARIOS" \
-    --min-waypoints "$MIN_WAYPOINTS" \
-    --max-waypoints "$MAX_WAYPOINTS" \
-    --min-agents "$MIN_AGENTS" \
-    --max-agents "$MAX_AGENTS" \
-    --seed "$SEED"
+for spec in $SCENARIO_SPECS; do
+    IFS=: read -r n_waypoints n_agents <<< "$spec"
+    group_root="$SCENARIO_ROOT/local_scenarios_${n_waypoints}_${n_agents}"
+
+    echo "Generating $N_SCENARIOS scenarios in $group_root"
+    mkdir -p "$group_root"
+
+    "$PYTHON_BIN" gen_scenarios.py \
+        --output-root "$group_root" \
+        --n-scenarios "$N_SCENARIOS" \
+        --min-waypoints "$n_waypoints" \
+        --max-waypoints "$n_waypoints" \
+        --min-agents "$n_agents" \
+        --max-agents "$n_agents" \
+        --seed "$SEED"
+done
 
 echo "Scenario generation completed: $SCENARIO_ROOT"
