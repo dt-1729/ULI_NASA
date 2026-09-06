@@ -36,7 +36,11 @@ def list_scenario_dirs(root_dir: Path) -> List[Path]:
     if not root_dir.exists():
         raise FileNotFoundError(f"Scenario root does not exist: {root_dir}")
 
-    scenario_dirs = sorted(p for p in root_dir.iterdir() if p.is_dir() and "scenario_" in p.name)
+    scenario_dirs = sorted(
+        data_file.parent
+        for data_file in root_dir.rglob("scenario_data.pkl")
+        if data_file.is_file()
+    )
     if not scenario_dirs:
         raise FileNotFoundError(f"No scenario directories found under {root_dir}")
     return scenario_dirs

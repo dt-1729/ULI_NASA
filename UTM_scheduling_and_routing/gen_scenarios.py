@@ -402,7 +402,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-waypoints", type=int, default=15, help="Maximum waypoint count per scenario.")
     parser.add_argument("--min-agents", type=int, default=2, help="Minimum agent count per scenario.")
     parser.add_argument("--max-agents", type=int, default=5, help="Maximum agent count per scenario.")
-    parser.add_argument("--waypoints", type=int, default=None, help="固定 waypoint count for every generated seed.")
+    parser.add_argument("--waypoints", type=int, default=None, help="Fixed waypoint count for every generated seed.")
     parser.add_argument("--agents", type=int, default=None, help="Fixed agent count for every generated seed.")
     parser.add_argument("--seed", type=int, default=123, help="Base seed for scenario generation.")
     parser.add_argument("--tol-range", type=float, nargs=2, default=[5.0, 5.0], help="Tolerance range as min max.")
