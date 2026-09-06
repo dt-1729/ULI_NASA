@@ -9,6 +9,7 @@
 #SBATCH --job-name=solve-scenarios
 #SBATCH --output=slurm_logs/slurm-solve-%x-%a-%j.out
 #SBATCH --error=slurm_logs/slurm-solve-%x-%a-%j.err
+#SBATCH --nodelist=ccc0362
 #SBATCH --array=0-99%20
 
 # For final timing benchmarks, uncomment this. It prevents interference
@@ -24,7 +25,8 @@ set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 
 SCENARIO_ROOT="${SCENARIO_ROOT:-$SLURM_SUBMIT_DIR/scenarios}"
-PYTHON_BIN="${PYTHON_BIN:-$SLURM_SUBMIT_DIR/.venv/bin/python}"
+PYTHON_BIN="/projects/illinois/eng/mechse/salapaka/dhananjay/.venv/bin/python"
+# PYTHON_BIN="${PYTHON_BIN:-$SLURM_SUBMIT_DIR/.venv/bin/python}"
 METHODS=("cbf" "slsqp" "seq")
 TIME_LIMIT="${TIME_LIMIT:-3600}"
 
