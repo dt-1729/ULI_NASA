@@ -313,10 +313,6 @@ class MIRSOptimizer:
         rh = self.rh
         mirs = self.mirs
 
-        # elif optimizer['name'] == 'SLSQP':
-        #     stop_tol        = optimizer['stop_tol']
-        #     disp            = optimizer['disp']
-
         for i, beta in enumerate(self.b_arr):
             t0 = time.time()
             weight_mat, _ = mirs.calc_agent_reach_mat_v1(Tb, Vb, beta)
@@ -340,10 +336,15 @@ class MIRSOptimizer:
                     a, b = mirs.ca_cbf['major_axis'][0], mirs.ca_cbf['minor_axis'][0]
                     print(f'a:{a:.3f}\tb:{b:.3f}')
             elif mirs.ca_cbf['mode'] == 'rect':
-                mirs.ca_cbf['width'] = rw**2 / (rw**2 + 1) * np.ones(mirs.tolArray.shape) * mirs.T_upper_bound
-                mirs.ca_cbf['height'] = rh/ (rh + 1) * mirs.tolArray
-                rw = rw*self.rw_rate
-                rh = rh*self.rh_rate
+                initial_width = self.rw**2 / (self.rw**2 + 1) * mirs.T_upper_bound
+                initial_height = self.rh / (self.rh + 1) * mirs.tolArray
+                progress = i / max(len(self.b_arr) - 1, 1)
+                mirs.ca_cbf['width'] = np.ones(mirs.tolArray.shape) * initial_width * (
+                    mirs.T_upper_bound / initial_width
+                ) ** progress
+                mirs.ca_cbf['height'] = initial_height * (
+                    mirs.tolArray / initial_height
+                ) ** progress
                 if annealPrint:
                     w, h = mirs.ca_cbf['width'][0], mirs.ca_cbf['height'][0]
                     print(f'w:{w:.3f}\th:{h:.3f}')

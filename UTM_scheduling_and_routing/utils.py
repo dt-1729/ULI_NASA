@@ -792,9 +792,9 @@ def set_mep_opt_config(solver_name):
         raise ValueError(f"Unsupported solver name: {solver_name}")
 
     anneal_config = {
-        'log_bmin':-5,
+        'log_bmin':-3,
         'log_bmax':3,
-        'nb':20,
+        'nb':10,
         'ra':0.01,
         'rb':0.001,
         'rw':0.001,

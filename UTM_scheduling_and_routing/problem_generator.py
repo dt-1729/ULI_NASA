@@ -4,6 +4,23 @@ from scipy.spatial.distance import cdist
 import utils
 import flpoAgent
 
+
+def space_agent_start_times(sd_mat, tolArray):
+    """Return release times separated by each shared start waypoint's tolerance."""
+    sd_mat = np.asarray(sd_mat)
+    tolArray = np.asarray(tolArray, dtype=float)
+    start_times = np.zeros(sd_mat.shape[0], dtype=float)
+    next_start_by_waypoint = {}
+
+    for agent_index, start_waypoint in enumerate(sd_mat[:, 0]):
+        start_waypoint = int(start_waypoint)
+        spacing = max(float(tolArray[start_waypoint]), 0.0)
+        start_times[agent_index] = next_start_by_waypoint.get(start_waypoint, 0.0)
+        next_start_by_waypoint[start_waypoint] = start_times[agent_index] + spacing
+
+    return start_times
+
+
 def init_waypoints(wp_params: dict, seed: int, INF:float):
     np.random.seed(seed)
     random.seed(seed)
@@ -33,7 +50,8 @@ def init_agent_params(
     wp_locations,
     seed,
     tolArray=None,
-    mode=None):
+    mode=None,
+    T_upper_bound=10000):
 
     np.random.seed(seed)
     random.seed(seed)
@@ -52,17 +70,17 @@ def init_agent_params(
     if mode == 'lin_static':
         if tolArray is None:
             tolArray = np.ones(n_waypoints)
+        start_times = space_agent_start_times(sd_mat, tolArray)
         max_tol = float(np.max(tolArray))
-        min_spacing = max_tol * 1.5 if max_tol > 0 else 1.0
-        start_times = np.arange(n_agents, dtype=float) * min_spacing
         waypoint_drift = np.linspace(0.0, max_tol * 2.25, n_waypoints)
         sched_mat = start_times[:, None] + waypoint_drift[None, :]
     else:
         sched_mat = np.random.uniform(0.0, 50.0, (n_agents, n_waypoints))
-        start_times = np.random.uniform(0.0, 0.0, n_agents)
+        if tolArray is None:
+            tolArray = np.ones(n_waypoints, dtype=float)
+        start_times = space_agent_start_times(sd_mat, tolArray)
         sched_mat[np.arange(n_agents), sd_mat[:, 0]] = start_times
 
-    T_upper_bound = 600
     process_T = np.random.uniform(3, 5, (n_agents, n_waypoints)) * 0
     process_T[np.arange(n_agents), sd_mat[:, 1]] = np.zeros(n_agents)
 

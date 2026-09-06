@@ -5,69 +5,92 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
-#SBATCH --time=01:00:00
+#SBATCH --time=03:15:00
 #SBATCH --job-name=solve-scenarios
 #SBATCH --output=slurm_logs/slurm-solve-%x-%a-%j.out
 #SBATCH --error=slurm_logs/slurm-solve-%x-%a-%j.err
-#SBATCH --array=0-29
+#SBATCH --array=0-99%20
+
+# For final timing benchmarks, uncomment this. It prevents interference
+# from other jobs sharing the same node, but may increase queue time.
+##SBATCH --exclusive
+
+# If this feature is available in IllinoisComputes, uncomment to keep
+# all benchmark jobs on the AMD EPYC 7713 node class.
+##SBATCH --constraint=AE7713
 
 set -euo pipefail
 
-# Use SLURM_SUBMIT_DIR (the directory from which sbatch was invoked)
 cd "$SLURM_SUBMIT_DIR"
 
-# Create slurm_logs directory
-mkdir -p slurm_logs
-
-# Configuration
-SCENARIO_ROOT="${SCENARIO_ROOT:-$SLURM_SUBMIT_DIR/cc_scenarios_small}"
-PYTHON_BIN="${PYTHON_BIN:-python}"
-METHODS=("gurobi")
+SCENARIO_ROOT="${SCENARIO_ROOT:-$SLURM_SUBMIT_DIR/scenarios}"
+PYTHON_BIN="${PYTHON_BIN:-$SLURM_SUBMIT_DIR/.venv/bin/python}"
+METHODS=("cbf" "slsqp" "seq")
 TIME_LIMIT="${TIME_LIMIT:-3600}"
 
-# List all scenario directories
-SCENARIOS=($(ls -d "$SCENARIO_ROOT"/scenario_* 2>/dev/null | xargs -n1 basename | sort))
+# Prevent numerical libraries from using cores beyond --cpus-per-task.
+export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
+export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
+export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
+export NUMEXPR_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 
-if [[ ${#SCENARIOS[@]} -eq 0 ]]; then
+mapfile -t SCENARIOS < <(
+    find "$SCENARIO_ROOT" -type f -name scenario_data.pkl -print \
+        | sed 's#/scenario_data.pkl$##' \
+        | sort
+)
+
+N_SCENARIOS=${#SCENARIOS[@]}
+
+if [[ "$N_SCENARIOS" -eq 0 ]]; then
     echo "ERROR: No scenarios found in $SCENARIO_ROOT"
     exit 1
 fi
 
-# Calculate which scenario and method this array task should run
-N_METHODS=${#METHODS[@]}
-N_SCENARIOS=${#SCENARIOS[@]}
-TOTAL_TASKS=$((N_SCENARIOS * N_METHODS))
-
-if [[ $SLURM_ARRAY_TASK_ID -ge $TOTAL_TASKS ]]; then
-    echo "Array task ID $SLURM_ARRAY_TASK_ID exceeds total tasks ($TOTAL_TASKS). Exiting."
-    exit 0
-fi
-
-SCENARIO_IDX=$((SLURM_ARRAY_TASK_ID / N_METHODS))
-METHOD_IDX=$((SLURM_ARRAY_TASK_ID % N_METHODS))
-
-SCENARIO="${SCENARIOS[$SCENARIO_IDX]}"
-METHOD="${METHODS[$METHOD_IDX]}"
-SCENARIO_PATH="$SCENARIO_ROOT/$SCENARIO"
-
-echo "=========================================="
-echo "Array Task: $SLURM_ARRAY_TASK_ID"
-echo "Scenario Index: $SCENARIO_IDX / $N_SCENARIOS"
-echo "Method Index: $METHOD_IDX / $N_METHODS"
-echo "Scenario: $SCENARIO"
-echo "Method: $METHOD"
-echo "Scenario Path: $SCENARIO_PATH"
-echo "Time Limit: $TIME_LIMIT seconds"
-echo "=========================================="
-
-if [[ ! -d "$SCENARIO_PATH" ]]; then
-    echo "ERROR: Scenario directory not found: $SCENARIO_PATH"
+if [[ ! -x "$PYTHON_BIN" ]]; then
+    echo "ERROR: Python executable not found: $PYTHON_BIN"
     exit 1
 fi
 
-"$PYTHON_BIN" main_cbf.py solve \
-    --method "$METHOD" \
-    --scenario-path "$SCENARIO_PATH" \
-    --time-limit "$TIME_LIMIT"
+if [[ "$SLURM_ARRAY_TASK_ID" -ge "$N_SCENARIOS" ]]; then
+    echo "Task ${SLURM_ARRAY_TASK_ID} exceeds ${N_SCENARIOS} scenarios. Exiting."
+    exit 0
+fi
 
-echo "Completed solve for $SCENARIO with $METHOD method"
+SCENARIO_PATH="${SCENARIOS[$SLURM_ARRAY_TASK_ID]}"
+SCENARIO="${SCENARIO_PATH#$SCENARIO_ROOT/}"
+
+if [[ ! -f "$SCENARIO_PATH/scenario_data.pkl" ]]; then
+    echo "ERROR: Missing scenario_data.pkl in $SCENARIO_PATH"
+    exit 1
+fi
+
+# Rotate order: cbf→slsqp→seq, then slsqp→seq→cbf, then seq→cbf→slsqp.
+# This keeps all methods in the same job, while avoiding systematic order bias.
+OFFSET=$((SLURM_ARRAY_TASK_ID % ${#METHODS[@]}))
+METHOD_ORDER=()
+for ((i = 0; i < ${#METHODS[@]}; i++)); do
+    METHOD_ORDER+=("${METHODS[$(((OFFSET + i) % ${#METHODS[@]}))]}")
+done
+
+echo "=========================================="
+echo "Array task:       $SLURM_ARRAY_TASK_ID"
+echo "Scenario:         $SCENARIO"
+echo "Scenario path:    $SCENARIO_PATH"
+echo "CPU allocation:   $SLURM_CPUS_PER_TASK"
+echo "Method order:     ${METHOD_ORDER[*]}"
+echo "Per-method limit: $TIME_LIMIT seconds"
+echo "=========================================="
+
+for METHOD in "${METHOD_ORDER[@]}"; do
+    echo "Starting $METHOD at $(date --iso-8601=seconds)"
+
+    "$PYTHON_BIN" main.py solve \
+        --scenario-path "$SCENARIO_PATH" \
+        --methods "$METHOD" \
+        --time-limit "$TIME_LIMIT"
+
+    echo "Completed $METHOD at $(date --iso-8601=seconds)"
+done
+
+echo "Completed all methods for $SCENARIO"
