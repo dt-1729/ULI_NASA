@@ -313,10 +313,6 @@ class MIRSOptimizer:
         rh = self.rh
         mirs = self.mirs
 
-        # elif optimizer['name'] == 'SLSQP':
-        #     stop_tol        = optimizer['stop_tol']
-        #     disp            = optimizer['disp']
-
         for i, beta in enumerate(self.b_arr):
             t0 = time.time()
             weight_mat, _ = mirs.calc_agent_reach_mat_v1(Tb, Vb, beta)

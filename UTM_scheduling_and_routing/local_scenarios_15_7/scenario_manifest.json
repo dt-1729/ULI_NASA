@@ -1,0 +1,87 @@
+{
+  "generated_at": "2026-09-06 00:25:09",
+  "root_dir": "local_scenarios_15_7",
+  "n_scenarios": 10,
+  "scenarios": [
+    {
+      "folder": "scenario_001_nwp15_na7_seed3416964",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 7,
+      "seed": 3416964,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_002_nwp15_na7_seed5012227",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 7,
+      "seed": 5012227,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_003_nwp15_na7_seed8279862",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 7,
+      "seed": 8279862,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_004_nwp15_na7_seed3148813",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 7,
+      "seed": 3148813,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_005_nwp15_na7_seed8547596",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 7,
+      "seed": 8547596,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_006_nwp15_na7_seed9377829",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 7,
+      "seed": 9377829,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_007_nwp15_na7_seed9177477",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 7,
+      "seed": 9177477,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_008_nwp15_na7_seed7521707",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 7,
+      "seed": 7521707,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_009_nwp15_na7_seed902409",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 7,
+      "seed": 902409,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_010_nwp15_na7_seed1816564",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 7,
+      "seed": 1816564,
+      "network_type": "random"
+    }
+  ]
+}

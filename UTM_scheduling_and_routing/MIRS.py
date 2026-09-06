@@ -201,7 +201,7 @@ class MIRS():
         elif self.ca_cbf['mode'] == 'rect':
             w, h, gamma = self.ca_cbf['width'], self.ca_cbf['height'], self.ca_cbf['gamma']
             ew, eh = self.ca_cbf['width_correction_fac'], self.ca_cbf['height_correction_fac']
-            # print(f'inside_rect')
+
             for i, wp in enumerate(waypoints):
                 n_active_agents = int(sum(filter_wp[:,wp]))
                 if n_active_agents > 1:

@@ -298,6 +298,8 @@ def generate_scenarios(
     prune_mode: bool,
     print_flag: bool,
     T_upper_bound: float = 10000,
+    fixed_waypoints: int | None = None,
+    fixed_agents: int | None = None,
 ) -> List[Path]:
     if n_scenarios <= 0:
         raise ValueError("n_scenarios must be positive.")
@@ -309,8 +311,14 @@ def generate_scenarios(
     scenario_paths: List[Path] = []
 
     for i in range(n_scenarios):
-        n_waypoints = int(rng.integers(min_waypoints, max_waypoints + 1))
-        n_agents = int(rng.integers(min_agents, min(max_agents, n_waypoints) + 1))
+        if fixed_waypoints is None:
+            n_waypoints = int(rng.integers(min_waypoints, max_waypoints + 1))
+        else:
+            n_waypoints = fixed_waypoints
+        if fixed_agents is None:
+            n_agents = int(rng.integers(min_agents, min(max_agents, n_waypoints) + 1))
+        else:
+            n_agents = fixed_agents
         scenario_seed = int(rng.integers(1, 10_000_000))
 
         generate_single_scenario(
@@ -351,6 +359,7 @@ def generate_scenarios(
                 "n_waypoints": int((scenario_dir.name.split("_nwp")[1].split("_na")[0])),
                 "n_agents": int((scenario_dir.name.split("_na")[1].split("_seed")[0])),
                 "seed": int(scenario_dir.name.split("_seed")[1]),
+                "network_type": network_type,
             }
             for scenario_dir in scenario_paths
         ],
@@ -393,6 +402,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-waypoints", type=int, default=15, help="Maximum waypoint count per scenario.")
     parser.add_argument("--min-agents", type=int, default=2, help="Minimum agent count per scenario.")
     parser.add_argument("--max-agents", type=int, default=5, help="Maximum agent count per scenario.")
+    parser.add_argument("--waypoints", type=int, default=None, help="固定 waypoint count for every generated seed.")
+    parser.add_argument("--agents", type=int, default=None, help="Fixed agent count for every generated seed.")
     parser.add_argument("--seed", type=int, default=123, help="Base seed for scenario generation.")
     parser.add_argument("--tol-range", type=float, nargs=2, default=[5.0, 5.0], help="Tolerance range as min max.")
     parser.add_argument("--network-type", choices=["grid", "ring", "random", "multigraph", "multi"], default="grid",
@@ -402,7 +413,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cbf-mode-name", choices=["rect", "el", "lin_static"], default="rect", help="CBF mode name.")
     parser.add_argument("--offset-energy", type=int, default=1, help="MIRS offset_energy value.")
     parser.add_argument("--self-hop", type=int, default=0, help="MIRS selfHop value.")
-    parser.add_argument("--filter-wp-thresh", type=float, default=1e-10, help="Waypoint pruning threshold.")
+    parser.add_argument("--filter-wp-thresh", type=float, default=1e-4, help="Waypoint pruning threshold.")
     parser.add_argument("--prune-mode", action="store_true", help="Enable waypoint pruning mode.")
     parser.add_argument("--print-flag", action="store_true", help="Enable verbose problem initialization output.")
     parser.add_argument("--t-upper-bound", type=float, default=10000.0, help="Upper bound for waypoint schedule times.")
@@ -421,6 +432,13 @@ def parse_args() -> argparse.Namespace:
         parser.error("--min-agents cannot exceed --max-waypoints")
     if args.max_agents > args.max_waypoints:
         args.max_agents = min(args.max_agents, args.max_waypoints)
+    if (args.waypoints is None) != (args.agents is None):
+        parser.error("--waypoints and --agents must be provided together")
+    if args.waypoints is not None:
+        if args.waypoints <= 0 or args.agents <= 0:
+            parser.error("--waypoints and --agents must be > 0")
+        if args.agents > args.waypoints:
+            parser.error("--agents cannot exceed --waypoints")
 
     return args
 
@@ -448,6 +466,8 @@ def main() -> None:
         prune_mode=args.prune_mode,
         print_flag=args.print_flag,
         T_upper_bound=args.t_upper_bound,
+        fixed_waypoints=args.waypoints,
+        fixed_agents=args.agents,
     )
 
     print(f"Generated {len(generated_dirs)} scenarios in {output_root}")

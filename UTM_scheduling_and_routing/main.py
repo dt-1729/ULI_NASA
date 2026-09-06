@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import pickle
 import time
 from pathlib import Path
@@ -13,12 +14,13 @@ import MIRS
 import cbs_search
 import gb_opt
 import mep_opt
+import seq_opt
 import utils
 import visualize
 
 
 DEFAULT_SCENARIO_ROOT = Path("local_scenarios")
-SUPPORTED_METHODS = ("cbf", "slsqp", "cbf_static", "slsqp_static", "gurobi", "cbs")
+SUPPORTED_METHODS = ("cbf", "slsqp", "cbf_static", "slsqp_static", "gurobi", "cbs", "seq")
 
 
 def load_scenario_data(scenario_dir: Path) -> Dict[str, Any]:
@@ -54,6 +56,7 @@ def output_filename_for_method(method: str) -> str:
         "slsqp_static": "solution_slsqp_static.pkl",
         "gurobi": "solution_gurobi.pkl",
         "cbs": "solution_cbs.pkl",
+        "seq": "solution_seq.pkl",
     }
     if method not in mapping:
         raise ValueError(f"Unsupported method: {method}")
@@ -87,6 +90,7 @@ def _base_solution_data(
             "slsqp_static": "MEP_SLSQP_STATIC",
             "gurobi": "GUROBI",
             "cbs": "CBS",
+                "seq": "SEQUENTIAL_SHORTEST_PATH",
         }[method],
         "n_agents": mirs.n_agents,
         "wp_xy": summary.get("wp_locations", mirs.wp_locations),
@@ -331,6 +335,64 @@ def solve_gurobi_scenario(
     return solution_data
 
 
+def solve_seq_scenario(
+    scenario_dir: Path,
+    scenario_data: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Solve one scenario with sequential shortest-path routing and scheduling."""
+    mirs = reconstruct_mirs_from_scenario(scenario_data)
+    t0 = time.time()
+    routes, arrival_schedules = seq_opt.shortest_path_baseline(scenario_data)
+    runtime = time.time() - t0
+
+    n_agents = int(scenario_data["n_agents"])
+    n_waypoints = int(scenario_data["n_waypoints"])
+    schedule_matrix = np.full((n_agents, n_waypoints), np.nan, dtype=float)
+    association_mat = np.zeros((n_agents, n_waypoints), dtype=float)
+    for agent_index, (route, schedule) in enumerate(zip(routes, arrival_schedules)):
+        for waypoint, arrival_time in zip(route, schedule):
+            schedule_matrix[agent_index, waypoint] = arrival_time
+            association_mat[agent_index, waypoint] = 1.0
+
+    # The network plot uses one extra initial timestamp to label each edge.
+    plot_schedules = [[schedule[0], *schedule] for schedule in arrival_schedules]
+    cost_schedule = schedule_matrix.copy()
+    cost_schedule[~np.isfinite(cost_schedule)] = mirs.T_upper_bound
+
+    optimizer_specs = scenario_data.get("optimizer_specs", {}).get("cbf_mep")
+    if optimizer_specs is None:
+        _, anneal_config = utils.set_mep_opt_config("cbf")
+    else:
+        anneal_config = optimizer_specs["anneal_config"]
+    terminal_beta = 10.0 ** float(anneal_config["log_bmax"])
+    seq_speed_vec = mirs.speed_lim_mat[:, 1]
+    seq_cost, _ = mirs.transportCost_v1(
+        cost_schedule,
+        seq_speed_vec,
+        terminal_beta,
+        returnGrad=False,
+    )
+
+    solution_data = _base_solution_data(
+        method="seq",
+        scenario_data=scenario_data,
+        scenario_dir=scenario_dir,
+        mirs=mirs,
+        cost=float(seq_cost),
+        runtime=runtime,
+        agent_routes=routes,
+        agent_schedules=plot_schedules,
+        association_mat=association_mat,
+        schedule_matrix=schedule_matrix,
+        arrival_schedules=arrival_schedules,
+    )
+
+    output_path = scenario_dir / output_filename_for_method("seq")
+    with open(output_path, "wb") as f:
+        pickle.dump(solution_data, f)
+    return solution_data
+
+
 def solve_scenario_by_method(
     scenario_dir: Path,
     scenario_data: Dict[str, Any],
@@ -373,6 +435,8 @@ def solve_scenario_by_method(
                 scenario_data["mirs_constructor_kwargs"].pop("ca_cbf", None)
     if method == "gurobi":
         return solve_gurobi_scenario(scenario_dir, scenario_data, time_limit=time_limit)
+    if method == "seq":
+        return solve_seq_scenario(scenario_dir, scenario_data)
     raise ValueError(f"Unsupported method '{method}'. Supported methods: {SUPPORTED_METHODS}")
 
 
@@ -431,6 +495,8 @@ def plot_scenario_solution(scenario_dir: Path, method: str, solution_data: Dict[
         if T_schedule is None:
             T_schedule = np.array(solution_data["agent_schedules"])[:, :, 0]
     elif method == "cbs":
+        T_schedule = solution_data["schedule_matrix"]
+    elif method == "seq":
         T_schedule = solution_data["schedule_matrix"]
     else:
         raise ValueError(f"Unsupported method '{method}'")
@@ -617,8 +683,17 @@ def compare_methods_across_scenarios(
             f"No complete method solution files found under {root_dir} for methods: {methods}."
         )
 
-    sorted_records = sorted(scenario_records, key=lambda item: _scenario_problem_size(item[1]))
-    x_values = np.array([_scenario_problem_size(scenario_data) for _, scenario_data, _ in sorted_records], dtype=float)
+    grouped_records: Dict[tuple[str, int, int], List[tuple[Path, Dict[str, Any], Dict[str, Dict[str, Any]]]]] = {}
+    for record in scenario_records:
+        scenario_data = record[1]
+        key = (
+            str(scenario_data.get("network_type", "unknown")),
+            int(scenario_data["n_waypoints"]),
+            int(scenario_data["n_agents"]),
+        )
+        grouped_records.setdefault(key, []).append(record)
+    group_keys = sorted(grouped_records)
+    x_values = np.arange(len(group_keys), dtype=float)
 
     method_labels = {
         "cbf": "CBF",
@@ -627,6 +702,7 @@ def compare_methods_across_scenarios(
         "slsqp_static": "SLSQP Static",
         "gurobi": "Gurobi",
         "cbs": "CBS",
+        "seq": "Sequential shortest path",
     }
     method_colors = {
         "cbf": "tab:blue",
@@ -635,30 +711,53 @@ def compare_methods_across_scenarios(
         "slsqp_static": "tab:brown",
         "gurobi": "tab:green",
         "cbs": "tab:red",
+        "seq": "tab:purple",
     }
 
     metric_names = ("makespan", "sum_time", "runtime", "conflict_violation")
     plotting_values = {
-        method: {metric: [] for metric in metric_names} for method in methods
+        method: {
+            metric: {"mean": [], "std": [], "count": []} for metric in metric_names
+        }
+        for method in methods
     }
-    for _, scenario_data, method_solutions in sorted_records:
+    for group_key in group_keys:
+        records = grouped_records[group_key]
         for method in methods:
-            metrics = _solution_comparison_metrics(scenario_data, method_solutions[method])
+            metrics_by_name = [
+                _solution_comparison_metrics(data, solutions[method])
+                for _, data, solutions in records
+            ]
             for metric in metric_names:
-                plotting_values[method][metric].append(metrics[metric])
-
-    for scenario_dir, scenario_data, method_solutions in sorted_records:
-        for method in methods:
-            metrics = _solution_comparison_metrics(scenario_data, method_solutions[method])
-            print(
-                f"[{method.upper()}] {scenario_dir.name} | "
-                f"conflicts={int(metrics['conflicts'])} | "
-                f"conflict_violation={metrics['conflict_violation']:.6f}"
-            )
+                values = np.asarray([metrics[metric] for metrics in metrics_by_name], dtype=float)
+                finite_values = values[np.isfinite(values)]
+                plotting_values[method][metric]["mean"].append(
+                    float(np.mean(finite_values)) if finite_values.size else np.nan
+                )
+                plotting_values[method][metric]["std"].append(
+                    float(np.std(finite_values)) if finite_values.size else np.nan
+                )
+                plotting_values[method][metric]["count"].append(int(finite_values.size))
 
     if save_path is None:
         save_path = root_dir / "method_comparison_metrics.png"
     save_path.parent.mkdir(parents=True, exist_ok=True)
+
+    summary_path = save_path.with_name(f"{save_path.stem}_summary.json")
+    summary = {
+        "groups": [
+            {
+                "network_type": network_type,
+                "n_waypoints": n_waypoints,
+                "n_agents": n_agents,
+                "n_scenarios": len(grouped_records[(network_type, n_waypoints, n_agents)]),
+            }
+            for network_type, n_waypoints, n_agents in group_keys
+        ],
+        "methods": plotting_values,
+    }
+    with summary_path.open("w", encoding="utf-8") as summary_file:
+        json.dump(summary, summary_file, indent=2)
 
     metric_labels = {
         "makespan": "Makespan (slowest agent time)",
@@ -671,21 +770,25 @@ def compare_methods_across_scenarios(
 
     for method in methods:
         for metric in metric_names:
-            values = np.asarray(plotting_values[method][metric], dtype=float)
-            axes_by_metric[metric].plot(
+            means = np.asarray(plotting_values[method][metric]["mean"], dtype=float)
+            stds = np.asarray(plotting_values[method][metric]["std"], dtype=float)
+            axes_by_metric[metric].errorbar(
                 x_values,
-                values,
+                means,
+                yerr=stds,
                 marker="o",
-                linewidth=2,
+                linewidth=1.5,
+                capsize=4,
                 label=method_labels[method],
                 color=method_colors[method],
             )
 
     for metric, axis in axes_by_metric.items():
-        axis.set_xscale("log")
-        axis.set_xlabel("N*M^3 + N*M")
+        axis.set_xticks(x_values)
+        axis.set_xticklabels([f"{network}\nN={n_agents}, M={n_waypoints}" for network, n_waypoints, n_agents in group_keys])
+        axis.set_xlabel("Scenario group (error bars show standard deviation)")
         axis.set_ylabel(metric_labels[metric])
-        axis.set_title(f"{metric_labels[metric]} across scenarios")
+        axis.set_title(f"Mean {metric_labels[metric]} across seeds")
         axis.grid(True, linestyle="--", alpha=0.4)
         axis.legend()
 
