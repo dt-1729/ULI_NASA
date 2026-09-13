@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import matplotlib.pyplot as plt
+from matplotlib.ticker import ScalarFormatter
 import numpy as np
 
 import MIRS
@@ -614,7 +615,8 @@ def _solution_comparison_metrics(
         dtype=float,
     ).reshape(-1)
     conflict_count = 0
-    conflict_violation = 0.0
+    comparable_pair_count = 0
+    conflict_deficits = []
     for first_agent in range(len(routes)):
         first_arrivals = {
             int(node): [] for node in routes[first_agent]
@@ -637,21 +639,40 @@ def _solution_comparison_metrics(
                     abs(first_time - second_time)
                     for first_time in first_arrivals[node]
                     for second_time in second_arrivals[node]
+                    if np.isfinite(first_time) and np.isfinite(second_time)
                 ]
-                conflicting_gaps = [gap for gap in gaps if gap < threshold]
-                if conflicting_gaps:
-                    conflict_count += 1
-                    gap = min(conflicting_gaps)
-                    tolerance = tolerances[node]
-                    if tolerance > 0:
-                        conflict_violation += abs(tolerance - gap) / tolerance
+                tolerance = tolerances[node]
+                if tolerance <= 0:
+                    continue
+                comparable_pair_count += len(gaps)
+                for gap in gaps:
+                    if gap < threshold:
+                        conflict_count += 1
+                        conflict_deficits.append((threshold - gap) / threshold)
+
+    conflict_rate = (
+        float(conflict_count / comparable_pair_count)
+        if comparable_pair_count
+        else np.nan
+    )
+    conflict_free = float(conflict_count == 0) if comparable_pair_count else np.nan
+    mean_conflict_deficit = (
+        float(np.mean(conflict_deficits)) if conflict_deficits else 0.0
+    )
+    max_conflict_deficit = (
+        float(np.max(conflict_deficits)) if conflict_deficits else 0.0
+    )
 
     return {
         "makespan": makespan,
         "sum_time": sum_travel_time,
         "runtime": float(solution.get("runtime", np.nan)),
         "conflicts": float(conflict_count),
-        "conflict_violation": float(conflict_violation),
+        "comparable_pairs": float(comparable_pair_count),
+        "conflict_rate": conflict_rate,
+        "conflict_free": conflict_free,
+        "mean_conflict_deficit": mean_conflict_deficit,
+        "max_conflict_deficit": max_conflict_deficit,
     }
 
 
@@ -717,11 +738,33 @@ def compare_methods_across_scenarios(
         "cbs": "tab:red",
         "seq": "tab:purple",
     }
+    method_markers = {
+        "cbf": "o",
+        "slsqp": "s",
+        "cbf_static": "^",
+        "slsqp_static": "D",
+        "gurobi": "v",
+        "cbs": "P",
+        "seq": "X",
+    }
 
-    metric_names = ("makespan", "sum_time", "runtime", "conflict_violation")
+    metric_names = (
+        "makespan",
+        "sum_time",
+        "runtime",
+        "conflict_rate",
+        "mean_conflict_deficit",
+    )
+    summary_metric_names = metric_names + (
+        "conflicts",
+        "comparable_pairs",
+        "conflict_free",
+        "max_conflict_deficit",
+    )
     plotting_values = {
         method: {
-            metric: {"mean": [], "std": [], "count": []} for metric in metric_names
+            metric: {"mean": [], "min": [], "max": [], "count": []}
+            for metric in summary_metric_names
         }
         for method in methods
     }
@@ -732,22 +775,24 @@ def compare_methods_across_scenarios(
                 _solution_comparison_metrics(data, solutions[method])
                 for _, data, solutions in records
             ]
-            for metric in metric_names:
+            for metric in summary_metric_names:
                 values = np.asarray([metrics[metric] for metrics in metrics_by_name], dtype=float)
                 finite_values = values[np.isfinite(values)]
                 plotting_values[method][metric]["mean"].append(
                     float(np.mean(finite_values)) if finite_values.size else np.nan
                 )
-                plotting_values[method][metric]["std"].append(
-                    float(np.std(finite_values)) if finite_values.size else np.nan
+                plotting_values[method][metric]["min"].append(
+                    float(np.min(finite_values)) if finite_values.size else np.nan
+                )
+                plotting_values[method][metric]["max"].append(
+                    float(np.max(finite_values)) if finite_values.size else np.nan
                 )
                 plotting_values[method][metric]["count"].append(int(finite_values.size))
 
-    if save_path is None:
-        save_path = root_dir / "method_comparison_metrics.png"
-    save_path.parent.mkdir(parents=True, exist_ok=True)
+    output_dir = root_dir / "comparison_metric_plots"
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    summary_path = save_path.with_name(f"{save_path.stem}_summary.json")
+    summary_path = output_dir / "method_comparison_metrics_summary.json"
     summary = {
         "groups": [
             {
@@ -767,41 +812,78 @@ def compare_methods_across_scenarios(
         "makespan": "Makespan (slowest agent time)",
         "sum_time": "Sum of individual travel times",
         "runtime": "Solution runtime (s)",
-        "conflict_violation": "Conflict violation score",
+        "conflict_rate": "Conflict rate (fraction of comparable pairs)",
+        "mean_conflict_deficit": "Mean normalized conflict deficit",
     }
-    fig, axes = plt.subplots(2, 2, figsize=(16, 11), squeeze=False)
-    axes_by_metric = dict(zip(metric_names, axes.flat))
-
-    for method in methods:
-        for metric in metric_names:
+    plt.rcParams["font.family"] = "Times New Roman"
+    x_tick_labels = [
+        f"({n_agents},{n_waypoints})"
+        for _, n_waypoints, n_agents in group_keys
+    ]
+    for metric in metric_names:
+        fig, axis = plt.subplots(figsize=(16, 6))
+        for method in methods:
             means = np.asarray(plotting_values[method][metric]["mean"], dtype=float)
-            stds = np.asarray(plotting_values[method][metric]["std"], dtype=float)
-            axes_by_metric[metric].errorbar(
+            minimums = np.asarray(plotting_values[method][metric]["min"], dtype=float)
+            maximums = np.asarray(plotting_values[method][metric]["max"], dtype=float)
+            axis.plot(
                 x_values,
                 means,
-                yerr=stds,
-                marker="o",
-                linewidth=1.5,
-                capsize=4,
+                marker=method_markers[method],
+                linewidth=2.5,
+                markersize=8,
                 label=method_labels[method],
                 color=method_colors[method],
             )
+            axis.fill_between(
+                x_values,
+                minimums,
+                maximums,
+                color=method_colors[method],
+                alpha=0.15,
+            )
 
-    for metric, axis in axes_by_metric.items():
         axis.set_xticks(x_values)
-        axis.set_xticklabels([f"{network}\nN={n_agents}, M={n_waypoints}" for network, n_waypoints, n_agents in group_keys])
-        axis.set_xlabel("Scenario group (error bars show standard deviation)")
-        axis.set_ylabel(metric_labels[metric])
-        axis.set_title(f"Mean {metric_labels[metric]} across seeds")
+        axis.set_xticklabels(x_tick_labels, fontsize=34, fontname="Times New Roman")
+        axis.tick_params(axis="both", which="major", labelsize=34)
+        axis.tick_params(axis="both", which="minor", labelsize=34)
+        metric_values = np.concatenate(
+            [
+                np.asarray(plotting_values[method][metric][statistic], dtype=float)
+                for method in methods
+                for statistic in ("mean", "min", "max")
+            ]
+        )
+        finite_values = metric_values[np.isfinite(metric_values)]
+        use_log_scale = (
+            metric in {"runtime", "makespan", "sum_time"}
+            and finite_values.size > 0
+            and np.all(finite_values > 0)
+        )
+
+        if metric in {"conflict_rate", "mean_conflict_deficit"}:
+            axis.set_ylim(-0.1, 1)
+        if metric in {"makespan", "runtime", "sum_time"}:
+            formatter = ScalarFormatter(useMathText=True)
+            formatter.set_scientific(True)
+            formatter.set_powerlimits((0, 0))
+            axis.yaxis.set_major_formatter(formatter)
+            axis.yaxis.get_offset_text().set_fontsize(34)
+            axis.yaxis.get_offset_text().set_fontname("Times New Roman")
+        else:
+            axis.ticklabel_format(axis="y", style="plain", useOffset=False)
         axis.grid(True, linestyle="--", alpha=0.4)
-        axis.legend()
+        axis.legend(
+            title=f"{metric_labels[metric]} (y-axis)",
+            fontsize=34,
+            title_fontsize=34,
+        )
+        fig.tight_layout()
+        metric_path = output_dir / f"{metric}.png"
+        fig.savefig(metric_path, dpi=400, bbox_inches="tight")
+        plt.close(fig)
 
-    fig.tight_layout()
-    fig.savefig(save_path, dpi=220, bbox_inches="tight")
-    plt.close(fig)
-
-    print(f"Saved comparison plot to: {save_path}")
-    return save_path
+    return output_dir
 
 
 def parse_args() -> argparse.Namespace:
@@ -814,7 +896,7 @@ def parse_args() -> argparse.Namespace:
         "mode",
         choices=("solve", "plot", "compare"),
         default="solve",
-        help="Execution mode. 'solve' computes a solution; 'plot' renders saved solution plots; 'compare' plots four solution metrics across scenarios and methods.",
+        help="Execution mode. 'solve' computes a solution; 'plot' renders saved solution plots; 'compare' saves individual metric plots across scenarios and methods.",
     )
     parser.add_argument(
         "--scenario-root",

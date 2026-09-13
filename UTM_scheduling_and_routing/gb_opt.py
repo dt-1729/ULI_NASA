@@ -514,7 +514,6 @@ class MIRSGurobiOptimizer:
                             color='black', fontsize=index_size, ha='center', va='bottom')
                 else:
                     # Other vertices
-                    print(schedule, i+1)
                     time = schedule[i + 1]  # offset because schedule[0] is start time
                     plt.plot(time, y, 'o', color=color, markersize=marker_size,
                             markeredgewidth=1.5, markerfacecolor=color, zorder=10)
