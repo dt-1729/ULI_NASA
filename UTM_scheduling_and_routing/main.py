@@ -541,7 +541,37 @@ def plot_scenario_solution(scenario_dir: Path, method: str, solution_data: Dict[
         show_plot=False,
     )
 
-    print(f"Saved plots to: {network_path} and {schedule_path}")
+    agent_schedule_path = scenario_dir / f"agent_schedule_plot_{method}.png"
+    visualize.plot_agent_waypoint_schedules(
+        agent_routes,
+        agent_schedules,
+        T_schedule,
+        assoc_mat,
+        process_T,
+        tol_array,
+        agent_colors,
+        figuresize=(24, 12),
+        marker_size=18,
+        index_size=52,
+        x_tick_size=44,
+        y_tick_size=44,
+        x_label_size=56,
+        y_label_size=56,
+        save_path=str(agent_schedule_path),
+        show_plot=False,
+    )
+
+    print(f"Saved plots to: {network_path}, {schedule_path}, and {agent_schedule_path}")
+
+    if method == "cbf" and "b_arr" in solution_data and "chi_arr" in solution_data:
+        beta_assoc_path = scenario_dir / f"waypoint_association_vs_beta_{method}.png"
+        visualize.plot_agent_waypoint_associations_vs_beta(
+            b_arr=solution_data["b_arr"],
+            chi_arr=solution_data["chi_arr"],
+            save_path=str(beta_assoc_path),
+            show_plot=False,
+        )
+        print(f"Saved beta-sweep association plot to: {beta_assoc_path}")
 
 
 def plot_all_scenarios(root_dir: Path, method: str) -> List[Path]:
@@ -561,6 +591,98 @@ def plot_all_scenarios(root_dir: Path, method: str) -> List[Path]:
         plotted_dirs.append(scenario_dir)
 
     return plotted_dirs
+
+
+def animation_schedules(
+    routes: List[List[int]],
+    fallback_schedules: List[List[float]],
+    schedule_matrix: Any,
+) -> List[List[float]]:
+    """Convert a method's waypoint-time matrix into route-ordered schedules."""
+    matrix = np.asarray(schedule_matrix)
+    if matrix.ndim != 2 or matrix.shape[0] < len(routes):
+        return fallback_schedules
+
+    schedules: List[List[float]] = []
+    for agent_id, route in enumerate(routes):
+        try:
+            arrival_times = [float(matrix[agent_id, int(waypoint)]) for waypoint in route]
+        except (IndexError, TypeError, ValueError):
+            return fallback_schedules
+        schedules.append([0.0, *arrival_times])
+    return schedules
+
+
+def animate_scenario_solution(
+    scenario_dir: Path,
+    method: str,
+    solution_data: Dict[str, Any],
+    fps: int = 10,
+    max_frames: int = 240,
+) -> Path:
+    wp_locs = np.asarray(solution_data["wp_xy"])
+    mask = np.asarray(solution_data["mask"])
+    agent_routes = solution_data["agent_routes"]
+    fallback_schedules = solution_data["agent_schedules"]
+
+    if method in {"cbf", "slsqp", "cbf_static", "slsqp_static"}:
+        method_schedule = solution_data["T_array"][-1]
+    elif method == "gurobi":
+        method_schedule = solution_data.get("T_mat", solution_data.get("T_array"))
+    elif method in {"cbs", "seq"}:
+        method_schedule = solution_data["schedule_matrix"]
+    else:
+        raise ValueError(f"Unsupported method '{method}'")
+
+    schedules = animation_schedules(
+        agent_routes,
+        fallback_schedules,
+        method_schedule,
+    )
+    cmap = plt.get_cmap("tab20")
+    agent_colors = {
+        agent_id: cmap(agent_id / max(1, len(agent_routes)))
+        for agent_id in range(len(agent_routes))
+    }
+    animation_path = scenario_dir / f"agent_animation_{method}.gif"
+    visualize.animate_agent_routes(
+        wp_xy=wp_locs,
+        mask=mask,
+        routes=agent_routes,
+        schedules=schedules,
+        agent_colors=agent_colors,
+        save_path=animation_path,
+        fps=fps,
+        max_frames=max_frames,
+    )
+    return animation_path
+
+
+def animate_all_scenarios(
+    root_dir: Path,
+    method: str,
+    fps: int = 10,
+    max_frames: int = 240,
+) -> List[Path]:
+    animation_paths: List[Path] = []
+    for scenario_dir in list_scenario_dirs(root_dir):
+        solution_path = scenario_dir / output_filename_for_method(method)
+        if not solution_path.exists():
+            print(f"Skipping {scenario_dir}: no {solution_path.name} found.")
+            continue
+
+        with open(solution_path, "rb") as f:
+            solution_data = pickle.load(f)
+        animation_path = animate_scenario_solution(
+            scenario_dir,
+            method,
+            solution_data,
+            fps=fps,
+            max_frames=max_frames,
+        )
+        animation_paths.append(animation_path)
+        print(f"Saved animation: {animation_path}")
+    return animation_paths
 
 
 def _scenario_problem_size(scenario_data: Dict[str, Any]) -> float:
@@ -830,8 +952,8 @@ def compare_methods_across_scenarios(
                 x_values,
                 means,
                 marker=method_markers[method],
-                linewidth=2.5,
-                markersize=8,
+                linewidth=3.0,
+                markersize=9,
                 label=method_labels[method],
                 color=method_colors[method],
             )
@@ -844,9 +966,15 @@ def compare_methods_across_scenarios(
             )
 
         axis.set_xticks(x_values)
-        axis.set_xticklabels(x_tick_labels, fontsize=34, fontname="Times New Roman")
-        axis.tick_params(axis="both", which="major", labelsize=34)
-        axis.tick_params(axis="both", which="minor", labelsize=34)
+        axis.set_xticklabels(x_tick_labels, fontsize=22, fontname="Times New Roman")
+        axis.tick_params(axis="both", which="major", labelsize=20)
+        axis.tick_params(axis="both", which="minor", labelsize=20)
+        axis.set_xlabel(
+            "Scenario size (N, M) = (number of agents, number of waypoints)",
+            fontsize=20,
+            fontname="Times New Roman",
+        )
+        axis.set_ylabel(metric_labels[metric], fontsize=20, fontname="Times New Roman")
         metric_values = np.concatenate(
             [
                 np.asarray(plotting_values[method][metric][statistic], dtype=float)
@@ -868,15 +996,15 @@ def compare_methods_across_scenarios(
             formatter.set_scientific(True)
             formatter.set_powerlimits((0, 0))
             axis.yaxis.set_major_formatter(formatter)
-            axis.yaxis.get_offset_text().set_fontsize(34)
+            axis.yaxis.get_offset_text().set_fontsize(20)
             axis.yaxis.get_offset_text().set_fontname("Times New Roman")
         else:
             axis.ticklabel_format(axis="y", style="plain", useOffset=False)
         axis.grid(True, linestyle="--", alpha=0.4)
         axis.legend(
             title=f"{metric_labels[metric]} (y-axis)",
-            fontsize=34,
-            title_fontsize=34,
+            fontsize=18,
+            title_fontsize=18,
         )
         fig.tight_layout()
         metric_path = output_dir / f"{metric}.png"
@@ -894,9 +1022,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "mode",
-        choices=("solve", "plot", "compare"),
+        choices=("solve", "plot", "compare", "anim"),
         default="solve",
-        help="Execution mode. 'solve' computes a solution; 'plot' renders saved solution plots; 'compare' saves individual metric plots across scenarios and methods.",
+        help="Execution mode. 'solve' computes a solution; 'plot' renders saved solution plots; 'anim' creates route animations; 'compare' saves comparison plots.",
     )
     parser.add_argument(
         "--scenario-root",
@@ -939,6 +1067,18 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=None,
         help="Optional time horizon for CBS searches.",
+    )
+    parser.add_argument(
+        "--animation-fps",
+        type=int,
+        default=10,
+        help="Frames per second for anim mode. Default: 10.",
+    )
+    parser.add_argument(
+        "--animation-max-frames",
+        type=int,
+        default=240,
+        help="Maximum frames generated per animation. Default: 240.",
     )
     parser.add_argument(
         "--optimizer-config-source",
@@ -1028,6 +1168,41 @@ def main() -> None:
             save_path=args.scenario_root / "method_comparison_metrics.png",
         )
         print(f"Saved cross-method comparison plot for {methods}: {comparison_path}")
+        return
+
+    if args.mode == "anim":
+        animation_methods = selected_methods or [method]
+        if args.scenario_path is not None:
+            scenario_dir = Path(args.scenario_path)
+            for animation_method in animation_methods:
+                solution_path = scenario_dir / output_filename_for_method(animation_method)
+                if not solution_path.exists():
+                    raise FileNotFoundError(
+                        f"No {solution_path.name} found for scenario: {scenario_dir}"
+                    )
+                with open(solution_path, "rb") as f:
+                    solution_data = pickle.load(f)
+                animation_path = animate_scenario_solution(
+                    scenario_dir,
+                    animation_method,
+                    solution_data,
+                    fps=args.animation_fps,
+                    max_frames=args.animation_max_frames,
+                )
+                print(f"Animated scenario with {animation_method}: {animation_path}")
+            return
+
+        for animation_method in animation_methods:
+            animation_paths = animate_all_scenarios(
+                args.scenario_root,
+                animation_method,
+                fps=args.animation_fps,
+                max_frames=args.animation_max_frames,
+            )
+            print(
+                f"Animated {len(animation_paths)} scenarios under "
+                f"{args.scenario_root} with {animation_method}"
+            )
         return
 
     plot_methods = selected_methods or [method]
