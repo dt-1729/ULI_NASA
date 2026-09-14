@@ -9,7 +9,7 @@
 #SBATCH --job-name=solve-scenarios
 #SBATCH --output=slurm_logs/slurm-solve-%x-%a-%j.out
 #SBATCH --error=slurm_logs/slurm-solve-%x-%a-%j.err
-#SBATCH --nodelist=ccc0362
+#SBATCH --nodelist=ccc0361
 #SBATCH --array=0-99%20
 
 # For final timing benchmarks, uncomment this. It prevents interference
@@ -30,14 +30,32 @@ PYTHON_BIN="/projects/illinois/eng/mechse/salapaka/dhananjay/.venv/bin/python"
 METHODS=("cbf" "slsqp" "seq")
 TIME_LIMIT="${TIME_LIMIT:-3600}"
 
+# Only these scenario subdirectories are solved by this job.
+SCENARIO_DIRS=(
+    "local_scenarios_25_18"
+    "local_scenarios_30_18"
+    "local_scenarios_35_21"
+    "local_scenarios_40_25"
+    "local_scenarios_40_29"
+)
+
 # Prevent numerical libraries from using cores beyond --cpus-per-task.
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 export NUMEXPR_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 
+SEARCH_ROOTS=()
+for D in "${SCENARIO_DIRS[@]}"; do
+    if [[ -d "$SCENARIO_ROOT/$D" ]]; then
+        SEARCH_ROOTS+=("$SCENARIO_ROOT/$D")
+    else
+        echo "WARNING: $SCENARIO_ROOT/$D not found, skipping"
+    fi
+done
+
 mapfile -t SCENARIOS < <(
-    find "$SCENARIO_ROOT" -type f -name scenario_data.pkl -print \
+    find "${SEARCH_ROOTS[@]}" -type f -name scenario_data.pkl -print \
         | sed 's#/scenario_data.pkl$##' \
         | sort
 )

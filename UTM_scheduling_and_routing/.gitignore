@@ -22,4 +22,9 @@ env/
 # Generated scenario data
 local_scenarios/
 local_scenarios1/
-scenarios/
+
+# NOTE: scenarios/ is intentionally NOT ignored here.
+# It should be pushed from the cluster but not from personal machines.
+# On personal machines, add "scenarios/" to .git/info/exclude instead
+# (a local, untracked ignore file — see `git help gitignore`), so this
+# tracked .gitignore stays the same on every machine.
