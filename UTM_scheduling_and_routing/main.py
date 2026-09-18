@@ -174,6 +174,7 @@ def solve_cbf_scenario(
         T0,
         V0,
         active_waypoints=active_waypoints,
+        time_limit=time_limit,
         annealPrint=anneal_print,
     )
     runtime = time.time() - t0
@@ -253,6 +254,7 @@ def solve_slsqp_scenario(
         T0,
         V0,
         active_waypoints=active_waypoints,
+        time_limit=time_limit,
         annealPrint=anneal_print,
     )
     runtime = time.time() - t0

@@ -302,6 +302,7 @@ class MIRSOptimizer:
         T0,
         V0,
         active_waypoints,
+        time_limit,
         annealPrint=False,
         ):
 
@@ -312,9 +313,9 @@ class MIRSOptimizer:
         rw = self.rw
         rh = self.rh
         mirs = self.mirs
-
+        t0 = time.time()
         for i, beta in enumerate(self.b_arr):
-            t0 = time.time()
+            t_start_beta = time.time()
             weight_mat, _ = mirs.calc_agent_reach_mat_v1(Tb, Vb, beta)
             filter_wp = np.ones(weight_mat.shape)
             filter_wp[weight_mat <= mirs.filter_wp_thresh] = 0.0
@@ -363,20 +364,23 @@ class MIRSOptimizer:
                 )
                 if annealPrint:
                     print(f'\nbeta: {beta:.4e}\tcost: {Fb:.3f}\ttol_mag:{mirs.tolArray[0]:.2f}')
-            t1 = time.time()
+            t_end_beta = time.time()
 
             if i == 0:
                 Tb_array = np.array([Tb])
                 Vb_array = np.array([Vb])
                 Fb_array = np.array([Fb])
                 chi_array = np.array([weight_mat])
-                t_compute_array = np.array([t1-t0])
+                t_compute_array = np.array([t_end_beta-t_start_beta])
             else:
                 Tb_array = np.concatenate((Tb_array, np.array([Tb])))
                 Vb_array = np.concatenate((Vb_array, np.array([Vb])))
                 Fb_array = np.concatenate((Fb_array, np.array([Fb])))
                 chi_array = np.concatenate((chi_array, np.array([weight_mat])))
-                t_compute_array = np.concatenate((t_compute_array, np.array([t1-t0])))
+                t_compute_array = np.concatenate((t_compute_array, np.array([t_end_beta-t_start_beta])))
+            if t_end_beta - t0 > time_limit:
+                print(f"Warning: Computation time exceeded the limit of {time_limit} seconds.")
+                break
 
         # compute final probability associations
         Pb_a = []
