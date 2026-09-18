@@ -171,7 +171,38 @@ class flpoAgent():
                 G_flip[i][:,self.d,:] = 0
 
         return G_flip[::-1]
-    
+
+
+    def returnStagewiseGrad_l(self, sched, speed, distMat, i, j):
+        # gradient of each stage-transition cost matrix w.r.t. the single edge length l_ij=distMat[i,j]
+        Nw = self.n_wp
+        K = self.stageHorizon
+        c0, c1, c2 = self.stagewise_cost_coeffs
+        edge_exists = self.net_mask[i, j] != 0
+
+        if edge_exists:
+            dt_ij = sched[j] - sched[i]
+            deriv = -2*c1/speed*(dt_ij - distMat[i,j]/speed) + c2/speed
+        else:
+            deriv = 0.0
+
+        G_flip = [0]*K
+        for stage in range(K):
+            if stage == 0: # penultimate stage to destination: transition (i,j) only present when j is the destination
+                G_flip[stage] = np.zeros((1, Nw, 1))
+                if edge_exists and j == self.d and i != self.d:
+                    G_flip[stage][0, i, 0] = deriv
+            elif stage == K-1: # start stage to first stage: transition (i,j) only present when i is the start node
+                G_flip[stage] = np.zeros((1, 1, Nw))
+                if edge_exists and i == self.s:
+                    G_flip[stage][0, 0, j] = deriv
+            else: # internal stages: transition (i,j) present whenever i is not the destination
+                G_flip[stage] = np.zeros((1, Nw, Nw))
+                if edge_exists and i != self.d:
+                    G_flip[stage][0, i, j] = deriv
+
+        return G_flip[::-1]
+
 
     def backPropDP(self, Xi_s, beta, returnPb=True):
         t0 = time.time()

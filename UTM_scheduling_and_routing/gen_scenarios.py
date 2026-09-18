@@ -55,7 +55,7 @@ def build_mirs_instance(
     offset_energy: int = 1,
     stagewise_cost_coeffs: np.ndarray | None = None,
     self_hop: int = 0,
-    filter_wp_thresh: float = 1e-10,
+    filter_wp_thresh: float = 1e-3,
     prune_mode: bool = False,
     print_flag: bool = False,
     T_upper_bound: float = 10000,
@@ -416,7 +416,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--filter-wp-thresh", type=float, default=1e-4, help="Waypoint pruning threshold.")
     parser.add_argument("--prune-mode", action="store_true", help="Enable waypoint pruning mode.")
     parser.add_argument("--print-flag", action="store_true", help="Enable verbose problem initialization output.")
-    parser.add_argument("--t-upper-bound", type=float, default=10000.0, help="Upper bound for waypoint schedule times.")
+    parser.add_argument("--t-upper-bound", type=float, default=2000.0, help="Upper bound for waypoint schedule times.")
 
     args = parser.parse_args()
 

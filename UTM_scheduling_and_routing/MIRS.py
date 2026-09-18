@@ -153,7 +153,48 @@ class MIRS():
             transport_cost = 1/self.lm * np.log(np.sum(np.exp(self.lm*(C_arr-C_max)))) + C_max
         
         return transport_cost, Grad_F
-        
+
+
+    # gradient of each agent's free energy, and of the total transport cost, w.r.t. a single edge length l_ij = dist_mat[i,j]
+    def transportCostGrad_l(self, sched_mat, speed_vec, beta, i, j):
+        C_arr = np.zeros(self.n_agents)
+        Grad_l = np.zeros(self.n_agents)
+
+        for k, a in enumerate(self.agents):
+            C_arr[k] = a.getFreeEnergy_s_v1(sched_mat[k,:], speed_vec[k], self.dist_mat, beta)
+            if a.net_mask[i, j] == 0:
+                continue # edge (i,j) does not exist in this agent's graph -> zero gradient
+            GD_a = a.returnStagewiseGrad_l(sched_mat[k,:], speed_vec[k], self.dist_mat, i, j)
+            P_a = a.getPathAssociations_v1(sched_mat[k,:], speed_vec[k], self.dist_mat, beta)
+            G_Fa, _ = a.backPropDP_grad(GD_a, P_a)
+            Grad_l[k] = G_Fa
+
+        if self.cost_mode == 'sum':
+            total_grad = np.sum(self.agent_weights * Grad_l)
+        elif self.cost_mode == 'slowest':
+            C_max = np.max(C_arr)
+            w = np.exp(self.lm * (C_arr - C_max))
+            w = w / np.sum(w)
+            total_grad = np.sum(w * Grad_l)
+
+        return Grad_l, total_grad
+
+
+    # gradient of the total transport cost F_beta w.r.t. every physical edge length l_ij (i<j) present in the network
+    def edgeGradientMatrix_l(self, sched_mat, speed_vec, beta):
+        Nw = self.n_waypoints
+        grad_mat = np.zeros((Nw, Nw))
+        for i in range(Nw):
+            for j in range(i+1, Nw):
+                if self.mask[i, j] == 0:
+                    continue
+                # dist_mat is symmetric, so l_ij's true gradient sums the partials from both traversal directions
+                _, g_fwd = self.transportCostGrad_l(sched_mat, speed_vec, beta, i, j)
+                _, g_bwd = self.transportCostGrad_l(sched_mat, speed_vec, beta, j, i)
+                grad_mat[i, j] = g_fwd + g_bwd
+                grad_mat[j, i] = grad_mat[i, j]
+        return grad_mat
+
 
     def CBF_waypoints_v1(self, sched_mat, waypoints, weight_mat, returnGrad=True):
         Nw = len(waypoints)

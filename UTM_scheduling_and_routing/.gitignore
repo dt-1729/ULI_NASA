@@ -22,6 +22,9 @@ env/
 # Generated scenario data
 local_scenarios/
 local_scenarios1/
+scenarios/
+scenarios_grid_small/
+scenarios_small/
 
 # NOTE: scenarios/ is intentionally NOT ignored here.
 # It should be pushed from the cluster but not from personal machines.

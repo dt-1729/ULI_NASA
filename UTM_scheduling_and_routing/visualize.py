@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import random
+import itertools
+import networkx as nx
 from collections import defaultdict
 from matplotlib.cm import get_cmap
 from matplotlib import cm  # for colormap
@@ -9,6 +11,7 @@ import matplotlib.patches as mpatches
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 import matplotlib as mpl
 from MIRS import MIRS
+from flpoAgent import flpoAgent
 import os
 import pickle
 from pathlib import Path
@@ -463,6 +466,94 @@ def plotNetwork(
             dpi=dpi,
             bbox_inches="tight",
         )
+
+    if show_plot:
+        plt.show()
+
+    plt.close(fig)
+
+
+def plot_edge_gradient_heatmap(
+    figuresize,
+    wp_xy,
+    mask,
+    grad_mat,
+    save_path=None,
+    dpi=300,
+    show_plot=True,
+    cmap_name="Greys",
+    line_width=8,
+):
+    """
+    Plot the waypoint network with each existing edge (i,j), i != j, colored on a
+    white-to-black scale according to |d F_beta / d l_ij| (grad_mat), high gradient
+    magnitude -> black, low magnitude -> white.
+    """
+    wp_xy = np.asarray(wp_xy)
+    mask = np.asarray(mask)
+    grad_mat = np.asarray(grad_mat)
+    n_waypoints = wp_xy.shape[0]
+
+    fig, ax = plt.subplots(figsize=figuresize)
+    ax.set_aspect("equal", adjustable="box")
+
+    edge_pairs = [
+        (i, j)
+        for i in range(n_waypoints)
+        for j in range(i + 1, n_waypoints)
+        if mask[i, j] == 1
+    ]
+    magnitudes = np.array([abs(grad_mat[i, j]) for i, j in edge_pairs]) if edge_pairs else np.array([0.0])
+    vmax = magnitudes.max()
+    norm = Normalize(vmin=0.0, vmax=vmax if vmax > 0 else 1.0)
+    cmap = plt.get_cmap(cmap_name)
+
+    for i, j in edge_pairs:
+        x1, y1 = wp_xy[i]
+        x2, y2 = wp_xy[j]
+        ax.plot(
+            [x1, x2],
+            [y1, y2],
+            color=cmap(norm(abs(grad_mat[i, j]))),
+            linewidth=line_width,
+            solid_capstyle="round",
+            zorder=1,
+        )
+
+    waypoint_marker_size = 1100
+    for waypoint_id, (x, y) in enumerate(wp_xy):
+        ax.scatter(
+            x, y,
+            facecolor="white",
+            edgecolor="black",
+            linewidth=1.5,
+            s=waypoint_marker_size,
+            zorder=2,
+        )
+        ax.text(
+            x, y,
+            rf"{waypoint_id}",
+            fontsize=28,
+            color="black",
+            fontweight="bold",
+            ha="center",
+            va="center",
+            zorder=3,
+        )
+
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax, shrink=0.8)
+    cbar.set_label(r"$|\partial F_\beta / \partial l_{ij}|$", fontsize=18)
+
+    ax.set_title(r"Edge gradient heat-map at $\beta=\beta_{max}$", fontsize=20)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    if save_path is not None:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
 
     if show_plot:
         plt.show()
@@ -1349,20 +1440,24 @@ def plot_waypoint_agent_schedules(
 def plot_agent_waypoint_associations_vs_beta(
     b_arr,
     chi_arr,
-    subplot_size=3.0,
+    num_betas=6,
+    subplot_size=None,
     ncols=None,
-    marker_size=60,
+    marker_size=None,
+    x_tick_size=22,
+    y_tick_size=22,
     save_path=None,
     dpi=300,
     show_plot=True,
 ):
     """
-    Plot the soft agent-waypoint association matrix (CBF method) at every beta step.
+    Plot the soft agent-waypoint association matrix (CBF method) at selected beta steps.
 
-    One subplot is produced per beta value in ``b_arr``. Each subplot is a grid
-    with agents on the y-axis and waypoints on the x-axis; a filled disc marks
-    each (agent, waypoint) pair, greyscale-shaded by the soft reach probability
-    in ``chi_arr`` (black = 1, white = 0), i.e. before any hard thresholding.
+    Subplots are produced for up to ``num_betas`` values (default 6), evenly spaced
+    across the annealing trajectory and guaranteed to include the initial and final
+    beta values. Each subplot is a grid with agents on the y-axis and waypoints on the
+    x-axis; a filled disc marks each (agent, waypoint) pair, greyscale-shaded by the
+    soft reach probability in ``chi_arr`` (black = 1, white = 0).
     """
     b_arr = np.asarray(b_arr)
     chi_arr = np.asarray(chi_arr)
@@ -1373,30 +1468,57 @@ def plot_agent_waypoint_associations_vs_beta(
             f"got array with ndim={chi_arr.ndim}."
         )
 
-    n_beta, n_agents, n_waypoints = chi_arr.shape
-    if b_arr.shape[0] != n_beta:
+    n_beta_total, n_agents, n_waypoints = chi_arr.shape
+    if b_arr.shape[0] != n_beta_total:
         raise ValueError(
             f"b_arr length ({b_arr.shape[0]}) does not match the number of "
-            f"beta steps in chi_arr ({n_beta})."
+            f"beta steps in chi_arr ({n_beta_total})."
         )
 
-    # Clip in case of small numerical over/undershoot outside the [0, 1] probability range.
+    if num_betas is not None and n_beta_total > num_betas:
+        selected_indices = np.round(np.linspace(0, n_beta_total - 1, num_betas)).astype(int)
+        selected_indices[0] = 0
+        selected_indices[-1] = n_beta_total - 1
+        b_arr = b_arr[selected_indices]
+        chi_arr = chi_arr[selected_indices]
+
+    n_beta = len(b_arr)
     soft_assoc_arr = np.clip(chi_arr, 0.0, 1.0)
 
-    ncols = ncols or max(1, int(np.ceil(np.sqrt(n_beta))))
+    ncols = ncols or min(3, n_beta)
     nrows = int(np.ceil(n_beta / ncols))
+
+    aspect_ratio = n_waypoints / max(1, n_agents)
+    if subplot_size is None:
+        sub_w = 6.0
+        plot_h = max(1.8, min(4.5, sub_w / aspect_ratio))
+        sub_h = plot_h + 0.75
+    else:
+        sub_w = float(subplot_size)
+        sub_h = float(subplot_size)
+        plot_h = sub_h
 
     fig, axes = plt.subplots(
         nrows,
         ncols,
-        figsize=(subplot_size * ncols, subplot_size * nrows),
+        figsize=(sub_w * ncols + 0.8, sub_h * nrows + 0.5),
         squeeze=False,
+        constrained_layout=True,
     )
 
     agent_grid, waypoint_grid = np.meshgrid(
         np.arange(n_agents), np.arange(n_waypoints), indexing="ij"
     )
 
+    if marker_size is None:
+        pts_per_cell_x = (sub_w * 0.85 / n_waypoints) * 72
+        pts_per_cell_y = (plot_h * 0.85 / n_agents) * 72
+        pts_per_cell = min(pts_per_cell_x, pts_per_cell_y)
+        effective_marker_size = max(45, min(450, 0.55 * (pts_per_cell ** 2)))
+    else:
+        effective_marker_size = marker_size
+
+    scatter = None
     for beta_idx in range(nrows * ncols):
         row, col = divmod(beta_idx, ncols)
         ax = axes[row][col]
@@ -1410,13 +1532,13 @@ def plot_agent_waypoint_associations_vs_beta(
         scatter = ax.scatter(
             waypoint_grid.flatten(),
             agent_grid.flatten(),
-            s=marker_size,
+            s=effective_marker_size,
             c=soft_mat.flatten(),
             cmap="gray_r",
             vmin=0.0,
             vmax=1.0,
             edgecolors="black",
-            linewidths=0.5,
+            linewidths=0.6,
             zorder=3,
         )
 
@@ -1424,20 +1546,38 @@ def plot_agent_waypoint_associations_vs_beta(
         ax.set_ylim(-0.5, n_agents - 0.5)
         ax.invert_yaxis()
         ax.set_aspect("equal")
-        ax.set_xticks(np.arange(n_waypoints))
-        ax.set_yticks(np.arange(n_agents))
-        ax.tick_params(axis="both", which="major", labelsize=max(6, 10 - ncols // 2))
-        ax.set_title(rf"$\beta$ = {b_arr[beta_idx]:.3g}", fontsize=max(8, 12 - ncols // 2))
-        ax.grid(True, linestyle="--", alpha=0.3, zorder=0)
+
+        if n_waypoints <= 16:
+            ax.set_xticks(np.arange(n_waypoints))
+        elif n_waypoints <= 30:
+            ax.set_xticks(np.arange(0, n_waypoints, 2))
+        else:
+            ax.set_xticks(np.arange(0, n_waypoints, 5))
+
+        if n_agents <= 16:
+            ax.set_yticks(np.arange(n_agents))
+        elif n_agents <= 30:
+            ax.set_yticks(np.arange(0, n_agents, 2))
+        else:
+            ax.set_yticks(np.arange(0, n_agents, 5))
+
+        ax.tick_params(axis="x", which="major", labelsize=x_tick_size)
+        ax.tick_params(axis="y", which="major", labelsize=y_tick_size)
+        ax.set_title(rf"$\beta$ = {b_arr[beta_idx]:.3g}", fontsize=22, fontweight="bold")
+        ax.grid(True, linestyle=":", alpha=0.35, zorder=0)
 
         if col == 0:
-            ax.set_ylabel("Agent", fontsize=max(8, 12 - ncols // 2))
-        if row == nrows - 1:
-            ax.set_xlabel("Waypoint", fontsize=max(8, 12 - ncols // 2))
+            ax.set_ylabel("Agent ID", fontsize=22, fontweight="bold")
+        if row == nrows - 1 or beta_idx + ncols >= n_beta:
+            ax.set_xlabel("Waypoint ID", fontsize=22, fontweight="bold")
 
-    fig.suptitle("Soft Agent-Waypoint Associations vs. Beta (CBF)", fontsize=16)
-    fig.colorbar(scatter, ax=axes, shrink=0.6, label="Soft association (reach probability)")
+    # fig.suptitle("Soft Agent-Waypoint Associations vs. Beta (CBF)", fontsize=22, fontweight="bold")
 
+    if scatter is not None:
+        cbar = fig.colorbar(scatter, ax=axes, shrink=0.85, pad=0.02, aspect=25)
+        cbar.set_label("Soft association (reach probability)", fontsize=22, fontweight="bold")
+        cbar.ax.tick_params(labelsize=22)
+        
     if save_path is not None:
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1447,3 +1587,211 @@ def plot_agent_waypoint_associations_vs_beta(
         plt.show()
 
     plt.close(fig)
+
+
+def plot_path_probabilities_vs_beta(
+    solution_data=None,
+    b_arr=None,
+    T_array=None,
+    V_array=None,
+    mask=None,
+    dist_mat=None,
+    sd_mat=None,
+    start_times=None,
+    speed_lim_mat=None,
+    processing_time=None,
+    inf=1e5,
+    offset_energy=1,
+    self_hop=0,
+    stagewise_cost_coeffs=None,
+    agent_routes=None,
+    num_agents=3,
+    num_paths=5,
+    agent_indices=None,
+    seed=None,
+    x_tick_size=22,
+    y_tick_size=22,
+    label_size=22,
+    title_size=22,
+    legend_size=22,
+    save_dir=None,
+    save_path=None,
+    dpi=300,
+    show_plot=True,
+):
+    """
+    Plot the evolution of path probabilities as a function of beta for sampled agents.
+
+    Generates one plot per agent, where each plot is a matrix heatmap showing the path
+    probabilities of ``num_paths`` sampled paths across the beta annealing schedule.
+    Plots are saved individually into the specified directory.
+    """
+    if solution_data is not None:
+        b_arr = solution_data.get("b_arr", b_arr)
+        T_array = solution_data.get("T_array", T_array)
+        V_array = solution_data.get("V_array", V_array)
+        mask = solution_data.get("mask", mask)
+        dist_mat = solution_data.get("dist_mat", dist_mat)
+        sd_mat = solution_data.get("sd_mat", sd_mat)
+        start_times = solution_data.get("start_times", start_times)
+        speed_lim_mat = solution_data.get("speed_lim_mat", speed_lim_mat)
+        processing_time = solution_data.get("processing_time", processing_time)
+        inf = solution_data.get("inf", inf)
+        offset_energy = solution_data.get("offset_energy", offset_energy)
+        self_hop = solution_data.get("self_hop", self_hop)
+        stagewise_cost_coeffs = solution_data.get("stagewise_cost_coeffs", stagewise_cost_coeffs)
+        agent_routes = solution_data.get("agent_routes", agent_routes)
+        if seed is None:
+            seed = solution_data.get("seed", 42)
+
+    if b_arr is None or T_array is None or V_array is None or mask is None or dist_mat is None or sd_mat is None:
+        raise ValueError("Missing required solution data arrays for path probability computation.")
+
+    b_arr = np.asarray(b_arr)
+    T_array = np.asarray(T_array)
+    V_array = np.asarray(V_array)
+    mask = np.asarray(mask)
+    dist_mat = np.asarray(dist_mat)
+    sd_mat = np.asarray(sd_mat)
+
+    if stagewise_cost_coeffs is None:
+        stagewise_cost_coeffs = np.array([0.1, 10.0, 0.1], dtype=float)
+
+    n_beta = len(b_arr)
+    n_agents_total = sd_mat.shape[0]
+    n_wp = mask.shape[0]
+
+    if agent_indices is not None:
+        selected_agents = [int(i) for i in agent_indices if 0 <= int(i) < n_agents_total]
+    else:
+        rng = np.random.RandomState(seed if seed is not None else 42)
+        n_sel = min(num_agents, n_agents_total)
+        selected_agents = list(rng.choice(n_agents_total, size=n_sel, replace=False))
+        selected_agents.sort()
+
+    if len(selected_agents) == 0:
+        raise ValueError("No valid agents selected for path probability plotting.")
+
+    target_dir = None
+    if save_dir is not None:
+        target_dir = Path(save_dir)
+    elif save_path is not None:
+        target_path = Path(save_path)
+        target_dir = target_path.parent / target_path.stem if target_path.suffix else target_path
+
+    if target_dir is not None:
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+    G = nx.DiGraph(mask)
+    saved_file_paths = []
+
+    for agent_id in selected_agents:
+        s = int(sd_mat[agent_id, 0])
+        dest = int(sd_mat[agent_id, 1])
+
+        start_time_val = float(start_times[agent_id]) if start_times is not None else 0.0
+        speed_lim_val = speed_lim_mat[agent_id] if speed_lim_mat is not None else np.array([1.0, 10.0])
+        process_t_val = processing_time[agent_id] if processing_time is not None else np.zeros(n_wp)
+
+        ag = flpoAgent(
+            n_wp=n_wp,
+            sd=sd_mat[agent_id],
+            sched=T_array[0, agent_id, :],
+            start_time=start_time_val,
+            speed=float(V_array[0, agent_id]),
+            speedLim=speed_lim_val,
+            process_T=process_t_val,
+            INF=float(inf),
+            offset_energy=bool(offset_energy),
+            selfHop=bool(self_hop),
+            net_mask=mask,
+            stagewise_cost_coeffs=stagewise_cost_coeffs,
+        )
+
+        try:
+            candidate_paths = list(itertools.islice(nx.shortest_simple_paths(G, source=s, target=dest), 50))
+        except (nx.NetworkXNoPath, nx.NodeNotFound):
+            candidate_paths = []
+
+        opt_route = list(agent_routes[agent_id]) if agent_routes is not None and agent_id < len(agent_routes) else None
+
+        paths = []
+        if opt_route is not None and len(opt_route) > 1 and int(opt_route[0]) == s and int(opt_route[-1]) == dest:
+            paths.append([int(x) for x in opt_route])
+
+        for pth in candidate_paths:
+            pth_int = [int(x) for x in pth]
+            if pth_int not in paths and len(paths) < num_paths:
+                paths.append(pth_int)
+
+        if not paths:
+            paths = [[s, dest]]
+
+        def _compute_path_prob(path, Pb):
+            K = len(Pb)
+            prob = 1.0
+            prob *= float(Pb[0][0, path[1]])
+            for step in range(1, len(path) - 1):
+                prob *= float(Pb[step][path[step], path[step + 1]])
+            for step in range(len(path) - 1, K - 1):
+                prob *= float(Pb[step][dest, dest])
+            prob *= float(Pb[K - 1][dest, 0])
+            return prob
+
+        probs_mat = np.zeros((n_beta, len(paths)))
+        for b_i, beta in enumerate(b_arr):
+            sched = T_array[b_i, agent_id, :]
+            speed = float(V_array[b_i, agent_id])
+            Pb = ag.getPathAssociations_v1(sched, speed, dist_mat, beta)
+            for p_i, path in enumerate(paths):
+                probs_mat[b_i, p_i] = _compute_path_prob(path, Pb)
+
+        fig, ax = plt.subplots(figsize=(10, 10))
+
+        im = ax.imshow(probs_mat, cmap="Blues", aspect="auto", vmin=0.0, vmax=1.0, origin="lower")
+
+        for r in range(n_beta):
+            for c in range(len(paths)):
+                val = probs_mat[r, c]
+                text_color = "white" if val > 0.6 else "black"
+                ax.text(c, r, f"{val:.2f}", ha="center", va="center", color=text_color, fontsize=18, fontweight="bold")
+
+        ax.set_xticks(np.arange(len(paths)))
+        ax.set_xticklabels([f"{i+1}" for i in range(len(paths))], fontsize=x_tick_size, fontweight="bold")
+        ax.set_yticks(np.arange(n_beta))
+        ax.set_yticklabels([rf"${b:.2g}$" for b in b_arr], fontsize=y_tick_size)
+        ax.set_xlabel("Sampled Path ID", fontsize=label_size, fontweight="bold", labelpad=10)
+        ax.set_ylabel(r"$\beta$", fontsize=label_size, fontweight="bold")
+        ax.set_title(f"Agent {agent_id} (Start: {s} $\\to$ End: {dest})", fontsize=title_size, fontweight="bold", pad=12)
+
+        legend_handles = [
+            mpatches.Patch(color="none", label=f"Path {i+1}: " + " $\\to$ ".join(map(str, pth)))
+            for i, pth in enumerate(paths)
+        ]
+        ax.legend(
+            handles=legend_handles,
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.12),
+            fontsize=legend_size,
+            frameon=True,
+            framealpha=0.9,
+            title="Path Sequences",
+            title_fontsize=legend_size + 2,
+            alignment="left",
+        )
+
+        cbar = fig.colorbar(im, ax=ax, shrink=0.85, pad=0.03, aspect=20)
+        cbar.set_label("Path Probability", fontsize=label_size, fontweight="bold")
+        cbar.ax.tick_params(labelsize=y_tick_size)
+
+        if target_dir is not None:
+            agent_file_path = target_dir / f"agent_{agent_id}_path_probability_vs_beta.png"
+            fig.savefig(agent_file_path, dpi=dpi, bbox_inches="tight")
+            saved_file_paths.append(agent_file_path)
+
+        if show_plot:
+            plt.show()
+
+        plt.close(fig)
+
+    return saved_file_paths

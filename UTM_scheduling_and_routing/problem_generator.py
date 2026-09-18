@@ -51,7 +51,7 @@ def init_agent_params(
     seed,
     tolArray=None,
     mode=None,
-    T_upper_bound=10000):
+    T_upper_bound=2000):
 
     np.random.seed(seed)
     random.seed(seed)
@@ -127,8 +127,8 @@ def get_network_params(n_wp:int, tol_range:list, name:str):
             'type':'grid',
             'n_points':n_wp,
             'grid_size':5000,
-            'noise_factor':100,
-            'extra_connections':10
+            'noise_factor':200,
+            'extra_connections':20
         }
     elif name == "ring":
         # Ring network parameters
@@ -160,8 +160,8 @@ def get_network_params(n_wp:int, tol_range:list, name:str):
             'height':10000.0,
             'min_spacing':500,
             'connection_radius':2000,
-            'max_neighbors':6,
-            'long_edge_probability':0.2,
+            'max_neighbors':10,
+            'long_edge_probability':0.4,
             'long_edge_decay':5000
         }
 

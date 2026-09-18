@@ -6,6 +6,15 @@ from scipy.spatial import KDTree
 import networkx as nx
 
 
+# apply edge-length overrides (produced by perturb_scenario.py) to a reconstructed MIRS instance's dist_mat
+def apply_dist_mat_overrides(mirs, overrides):
+    if not overrides:
+        return
+    for (i, j), new_length in overrides.items():
+        mirs.dist_mat[i, j] = new_length
+        mirs.dist_mat[j, i] = new_length
+
+
 # function to pick a point at random from a square
 def random_point_in_square(xlim:np.ndarray, ylim:np.ndarray):
     # Generate random x and y coordinates
@@ -792,8 +801,8 @@ def set_mep_opt_config(solver_name):
         raise ValueError(f"Unsupported solver name: {solver_name}")
 
     anneal_config = {
-        'log_bmin':-3,
-        'log_bmax':3,
+        'log_bmin':-6,
+        'log_bmax':0,
         'nb':10,
         'ra':0.01,
         'rb':0.001,

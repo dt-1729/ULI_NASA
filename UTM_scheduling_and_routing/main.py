@@ -49,7 +49,9 @@ def list_scenario_dirs(root_dir: Path) -> List[Path]:
 
 def reconstruct_mirs_from_scenario(scenario_data: Dict[str, Any]) -> MIRS.MIRS:
     kwargs = dict(scenario_data["mirs_constructor_kwargs"])
-    return MIRS.MIRS(**kwargs)
+    mirs = MIRS.MIRS(**kwargs)
+    utils.apply_dist_mat_overrides(mirs, scenario_data.get("dist_mat_overrides"))
+    return mirs
 
 
 def output_filename_for_method(method: str) -> str:
@@ -572,6 +574,42 @@ def plot_scenario_solution(scenario_dir: Path, method: str, solution_data: Dict[
             show_plot=False,
         )
         print(f"Saved beta-sweep association plot to: {beta_assoc_path}")
+
+    if "b_arr" in solution_data and "T_array" in solution_data and "V_array" in solution_data:
+        # Clean up legacy single-file plot if present
+        legacy_path_prob_file = scenario_dir / f"path_probability_vs_beta_{method}.png"
+        if legacy_path_prob_file.exists():
+            legacy_path_prob_file.unlink()
+
+        path_prob_dir = scenario_dir / f"path_probability_vs_beta_{method}"
+        visualize.plot_path_probabilities_vs_beta(
+            solution_data=solution_data,
+            num_agents=len(solution_data["agent_routes"]),
+            num_paths=10,
+            save_dir=str(path_prob_dir),
+            show_plot=False,
+        )
+        print(f"Saved beta-sweep path probability plots to folder: {path_prob_dir}")
+
+        # gradient of F_beta at the terminal beta_max w.r.t. every existing edge length l_ij
+        scenario_data = load_scenario_data(scenario_dir)
+        mirs = reconstruct_mirs_from_scenario(scenario_data)
+        beta_max = solution_data["b_arr"][-1]
+        grad_mat = mirs.edgeGradientMatrix_l(
+            solution_data["T_array"][-1],
+            solution_data["V_array"][-1],
+            beta_max,
+        )
+        edge_grad_path = scenario_dir / f"edge_gradient_heatmap_{method}.png"
+        visualize.plot_edge_gradient_heatmap(
+            figuresize=(20, 14),
+            wp_xy=wp_locs,
+            mask=mask,
+            grad_mat=grad_mat,
+            save_path=str(edge_grad_path),
+            show_plot=False,
+        )
+        print(f"Saved edge gradient heat-map to: {edge_grad_path}")
 
 
 def plot_all_scenarios(root_dir: Path, method: str) -> List[Path]:
