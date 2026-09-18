@@ -40,7 +40,29 @@ def _to_python_primitive(value: Any) -> Any:
 
 
 def _scenario_folder_name(n_waypoints: int, n_agents: int, seed: int, index: int) -> str:
-    return f"scenario_{index:03d}_nwp{n_waypoints}_na{n_agents}_seed{seed}"
+    """Name one seed realization within a fixed problem-size group."""
+    return f"scenario_{index:03d}_seed{seed}"
+
+
+def _problem_size_folder(n_waypoints: int, n_agents: int) -> Path:
+    """Return the stable directory hierarchy for one (nwp, na) problem size."""
+    return Path(f"nwp{n_waypoints}_na{n_agents}")
+
+
+def _parse_problem_size(value: str) -> Tuple[int, int]:
+    """Parse one command-line problem size written as NWP:NA (for example, 10:3)."""
+    try:
+        nwp_text, na_text = value.split(":", maxsplit=1)
+        n_waypoints, n_agents = int(nwp_text), int(na_text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"Invalid problem size '{value}'. Use NWP:NA, for example 10:3."
+        ) from exc
+    if n_waypoints <= 0 or n_agents <= 0 or n_agents > n_waypoints:
+        raise argparse.ArgumentTypeError(
+            f"Invalid problem size '{value}': require 0 < NA <= NWP."
+        )
+    return n_waypoints, n_agents
 
 
 def build_mirs_instance(
@@ -199,7 +221,7 @@ def generate_single_scenario(
         T_upper_bound=T_upper_bound,
     )
 
-    scenario_dir = root_dir / _scenario_folder_name(
+    scenario_dir = root_dir / _problem_size_folder(n_waypoints, n_agents) / _scenario_folder_name(
         n_waypoints=n_waypoints,
         n_agents=n_agents,
         seed=seed,
@@ -281,11 +303,8 @@ def generate_single_scenario(
 
 def generate_scenarios(
     output_root: Path,
-    n_scenarios: int,
-    min_waypoints: int,
-    max_waypoints: int,
-    min_agents: int,
-    max_agents: int,
+    problem_sizes: List[Tuple[int, int]],
+    seeds_per_size: int,
     seed: int,
     tol_range: Tuple[float, float],
     network_type: str,
@@ -298,11 +317,17 @@ def generate_scenarios(
     prune_mode: bool,
     print_flag: bool,
     T_upper_bound: float = 10000,
-    fixed_waypoints: int | None = None,
-    fixed_agents: int | None = None,
 ) -> List[Path]:
-    if n_scenarios <= 0:
-        raise ValueError("n_scenarios must be positive.")
+    """Generate independent seed realizations for each requested problem size.
+
+    Scenario directories are grouped as ``nwp<N>_na<A>/scenario_<i>_seed<S>``.
+    Thus every (N, A) pair receives exactly ``seeds_per_size`` scenarios,
+    irrespective of the selected network type.
+    """
+    if not problem_sizes:
+        raise ValueError("At least one problem size is required.")
+    if seeds_per_size <= 0:
+        raise ValueError("seeds_per_size must be positive.")
 
     output_root = Path(output_root)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -310,54 +335,45 @@ def generate_scenarios(
     rng = np.random.default_rng(seed)
     scenario_paths: List[Path] = []
 
-    for i in range(n_scenarios):
-        if fixed_waypoints is None:
-            n_waypoints = int(rng.integers(min_waypoints, max_waypoints + 1))
-        else:
-            n_waypoints = fixed_waypoints
-        if fixed_agents is None:
-            n_agents = int(rng.integers(min_agents, min(max_agents, n_waypoints) + 1))
-        else:
-            n_agents = fixed_agents
-        scenario_seed = int(rng.integers(1, 10_000_000))
-
-        generate_single_scenario(
-            root_dir=output_root,
-            scenario_index=i + 1,
-            n_waypoints=n_waypoints,
-            n_agents=n_agents,
-            seed=scenario_seed,
-            tol_range=tol_range,
-            network_type=network_type,
-            cost_mode=cost_mode,
-            lm=lm,
-            cbf_mode_name=cbf_mode_name,
-            offset_energy=offset_energy,
-            self_hop=self_hop,
-            filter_wp_thresh=filter_wp_thresh,
-            prune_mode=prune_mode,
-            print_flag=print_flag,
-            T_upper_bound=T_upper_bound,
-        )
-
-        scenario_dir = output_root / _scenario_folder_name(
-            n_waypoints=n_waypoints,
-            n_agents=n_agents,
-            seed=scenario_seed,
-            index=i + 1,
-        )
-        scenario_paths.append(scenario_dir)
+    for n_waypoints, n_agents in problem_sizes:
+        for scenario_index in range(1, seeds_per_size + 1):
+            scenario_seed = int(rng.integers(1, 10_000_000))
+            generate_single_scenario(
+                root_dir=output_root,
+                scenario_index=scenario_index,
+                n_waypoints=n_waypoints,
+                n_agents=n_agents,
+                seed=scenario_seed,
+                tol_range=tol_range,
+                network_type=network_type,
+                cost_mode=cost_mode,
+                lm=lm,
+                cbf_mode_name=cbf_mode_name,
+                offset_energy=offset_energy,
+                self_hop=self_hop,
+                filter_wp_thresh=filter_wp_thresh,
+                prune_mode=prune_mode,
+                print_flag=print_flag,
+                T_upper_bound=T_upper_bound,
+            )
+            scenario_paths.append(
+                output_root
+                / _problem_size_folder(n_waypoints, n_agents)
+                / _scenario_folder_name(n_waypoints, n_agents, scenario_seed, scenario_index)
+            )
 
     manifest = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "root_dir": str(output_root),
-        "n_scenarios": n_scenarios,
+        "seeds_per_size": seeds_per_size,
+        "n_problem_sizes": len(problem_sizes),
+        "n_scenarios": len(scenario_paths),
         "scenarios": [
             {
                 "folder": scenario_dir.name,
                 "data_file": "scenario_data.pkl",
-                "n_waypoints": int((scenario_dir.name.split("_nwp")[1].split("_na")[0])),
-                "n_agents": int((scenario_dir.name.split("_na")[1].split("_seed")[0])),
+                "n_waypoints": int(scenario_dir.parent.name.split("_")[0].removeprefix("nwp")),
+                "n_agents": int(scenario_dir.parent.name.split("_")[1].removeprefix("na")),
                 "seed": int(scenario_dir.name.split("_seed")[1]),
                 "network_type": network_type,
             }
@@ -397,13 +413,20 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_SCENARIO_ROOT,
         help=f"Folder where all scenario directories will be written. Default: {DEFAULT_SCENARIO_ROOT}",
     )
-    parser.add_argument("--n-scenarios", type=int, default=5, help="Number of scenarios to generate.")
-    parser.add_argument("--min-waypoints", type=int, default=5, help="Minimum waypoint count per scenario.")
-    parser.add_argument("--max-waypoints", type=int, default=15, help="Maximum waypoint count per scenario.")
-    parser.add_argument("--min-agents", type=int, default=2, help="Minimum agent count per scenario.")
-    parser.add_argument("--max-agents", type=int, default=5, help="Maximum agent count per scenario.")
-    parser.add_argument("--waypoints", type=int, default=None, help="Fixed waypoint count for every generated seed.")
-    parser.add_argument("--agents", type=int, default=None, help="Fixed agent count for every generated seed.")
+    parser.add_argument(
+        "--problem-sizes",
+        type=_parse_problem_size,
+        nargs="+",
+        required=True,
+        metavar="NWP:NA",
+        help="Problem sizes to generate, e.g. --problem-sizes 5:2 10:3 15:5.",
+    )
+    parser.add_argument(
+        "--seeds-per-size",
+        type=int,
+        default=10,
+        help="Independent seeded scenarios generated for each NWP:NA pair. Default: 10.",
+    )
     parser.add_argument("--seed", type=int, default=123, help="Base seed for scenario generation.")
     parser.add_argument("--tol-range", type=float, nargs=2, default=[5.0, 5.0], help="Tolerance range as min max.")
     parser.add_argument("--network-type", choices=["grid", "ring", "random", "multigraph", "multi"], default="grid",
@@ -420,25 +443,10 @@ def parse_args() -> argparse.Namespace:
 
     args = parser.parse_args()
 
-    if args.min_waypoints <= 0:
-        parser.error("--min-waypoints must be > 0")
-    if args.max_waypoints < args.min_waypoints:
-        parser.error("--max-waypoints must be >= --min-waypoints")
-    if args.min_agents <= 0:
-        parser.error("--min-agents must be > 0")
-    if args.max_agents < args.min_agents:
-        parser.error("--max-agents must be >= --min-agents")
-    if args.min_agents > args.max_waypoints:
-        parser.error("--min-agents cannot exceed --max-waypoints")
-    if args.max_agents > args.max_waypoints:
-        args.max_agents = min(args.max_agents, args.max_waypoints)
-    if (args.waypoints is None) != (args.agents is None):
-        parser.error("--waypoints and --agents must be provided together")
-    if args.waypoints is not None:
-        if args.waypoints <= 0 or args.agents <= 0:
-            parser.error("--waypoints and --agents must be > 0")
-        if args.agents > args.waypoints:
-            parser.error("--agents cannot exceed --waypoints")
+    if args.seeds_per_size <= 0:
+        parser.error("--seeds-per-size must be > 0")
+    if len(set(args.problem_sizes)) != len(args.problem_sizes):
+        parser.error("--problem-sizes must not contain duplicate NWP:NA pairs")
 
     return args
 
@@ -449,11 +457,8 @@ def main() -> None:
 
     generated_dirs = generate_scenarios(
         output_root=output_root,
-        n_scenarios=args.n_scenarios,
-        min_waypoints=args.min_waypoints,
-        max_waypoints=args.max_waypoints,
-        min_agents=args.min_agents,
-        max_agents=args.max_agents,
+        problem_sizes=args.problem_sizes,
+        seeds_per_size=args.seeds_per_size,
         seed=args.seed,
         tol_range=(float(args.tol_range[0]), float(args.tol_range[1])),
         network_type=args.network_type,
@@ -466,11 +471,12 @@ def main() -> None:
         prune_mode=args.prune_mode,
         print_flag=args.print_flag,
         T_upper_bound=args.t_upper_bound,
-        fixed_waypoints=args.waypoints,
-        fixed_agents=args.agents,
     )
 
-    print(f"Generated {len(generated_dirs)} scenarios in {output_root}")
+    print(
+        f"Generated {len(generated_dirs)} scenarios across "
+        f"{len(args.problem_sizes)} problem sizes in {output_root}"
+    )
     for d in generated_dirs:
         print(f"- {d.name}: scenario_data.pkl")
 

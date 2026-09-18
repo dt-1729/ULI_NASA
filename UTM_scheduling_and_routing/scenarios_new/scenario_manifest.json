@@ -1,0 +1,1289 @@
+{
+  "generated_at": "2026-09-18 13:13:54",
+  "root_dir": "scenarios_new",
+  "seeds_per_size": 10,
+  "n_problem_sizes": 16,
+  "n_scenarios": 160,
+  "scenarios": [
+    {
+      "folder": "scenario_001_seed154406",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 3,
+      "n_agents": 2,
+      "seed": 154406,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_002_seed6823518",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 3,
+      "n_agents": 2,
+      "seed": 6823518,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_003_seed5929478",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 3,
+      "n_agents": 2,
+      "seed": 5929478,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_004_seed538211",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 3,
+      "n_agents": 2,
+      "seed": 538211,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_005_seed9090868",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 3,
+      "n_agents": 2,
+      "seed": 9090868,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_006_seed2203599",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 3,
+      "n_agents": 2,
+      "seed": 2203599,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_007_seed2550895",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 3,
+      "n_agents": 2,
+      "seed": 2550895,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_008_seed1843718",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 3,
+      "n_agents": 2,
+      "seed": 1843718,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_009_seed3336163",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 3,
+      "n_agents": 2,
+      "seed": 3336163,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_010_seed1759059",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 3,
+      "n_agents": 2,
+      "seed": 1759059,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_001_seed3478026",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 2,
+      "seed": 3478026,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_002_seed8120945",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 2,
+      "seed": 8120945,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_003_seed4513922",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 2,
+      "seed": 4513922,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_004_seed9233450",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 2,
+      "seed": 9233450,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_005_seed4494658",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 2,
+      "seed": 4494658,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_006_seed2765744",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 2,
+      "seed": 2765744,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_007_seed7887616",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 2,
+      "seed": 7887616,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_008_seed8197545",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 2,
+      "seed": 8197545,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_009_seed8619080",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 2,
+      "seed": 8619080,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_010_seed8898927",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 2,
+      "seed": 8898927,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_001_seed250719",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 3,
+      "seed": 250719,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_002_seed5129705",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 3,
+      "seed": 5129705,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_003_seed2681677",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 3,
+      "seed": 2681677,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_004_seed2449646",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 3,
+      "seed": 2449646,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_005_seed2412232",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 3,
+      "seed": 2412232,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_006_seed8242416",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 3,
+      "seed": 8242416,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_007_seed7920812",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 3,
+      "seed": 7920812,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_008_seed2137630",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 3,
+      "seed": 2137630,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_009_seed4096018",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 3,
+      "seed": 4096018,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_010_seed7414670",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 4,
+      "n_agents": 3,
+      "seed": 7414670,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_001_seed1482284",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 5,
+      "n_agents": 3,
+      "seed": 1482284,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_002_seed6299402",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 5,
+      "n_agents": 3,
+      "seed": 6299402,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_003_seed4386098",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 5,
+      "n_agents": 3,
+      "seed": 4386098,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_004_seed9274072",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 5,
+      "n_agents": 3,
+      "seed": 9274072,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_005_seed7391687",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 5,
+      "n_agents": 3,
+      "seed": 7391687,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_006_seed2319082",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 5,
+      "n_agents": 3,
+      "seed": 2319082,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_007_seed8350497",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 5,
+      "n_agents": 3,
+      "seed": 8350497,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_008_seed7991251",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 5,
+      "n_agents": 3,
+      "seed": 7991251,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_009_seed2130423",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 5,
+      "n_agents": 3,
+      "seed": 2130423,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_010_seed5181650",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 5,
+      "n_agents": 3,
+      "seed": 5181650,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_001_seed7941510",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 7,
+      "n_agents": 4,
+      "seed": 7941510,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_002_seed2315557",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 7,
+      "n_agents": 4,
+      "seed": 2315557,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_003_seed2448034",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 7,
+      "n_agents": 4,
+      "seed": 2448034,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_004_seed1659040",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 7,
+      "n_agents": 4,
+      "seed": 1659040,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_005_seed75993",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 7,
+      "n_agents": 4,
+      "seed": 75993,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_006_seed4977890",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 7,
+      "n_agents": 4,
+      "seed": 4977890,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_007_seed161527",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 7,
+      "n_agents": 4,
+      "seed": 161527,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_008_seed5827246",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 7,
+      "n_agents": 4,
+      "seed": 5827246,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_009_seed4157799",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 7,
+      "n_agents": 4,
+      "seed": 4157799,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_010_seed1843380",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 7,
+      "n_agents": 4,
+      "seed": 1843380,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_001_seed3618401",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 5,
+      "seed": 3618401,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_002_seed148950",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 5,
+      "seed": 148950,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_003_seed1434121",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 5,
+      "seed": 1434121,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_004_seed4711332",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 5,
+      "seed": 4711332,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_005_seed773042",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 5,
+      "seed": 773042,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_006_seed7282433",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 5,
+      "seed": 7282433,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_007_seed2568857",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 5,
+      "seed": 2568857,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_008_seed9186004",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 5,
+      "seed": 9186004,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_009_seed1696946",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 5,
+      "seed": 1696946,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_010_seed6255340",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 5,
+      "seed": 6255340,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_001_seed5153398",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 8,
+      "seed": 5153398,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_002_seed9171225",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 8,
+      "seed": 9171225,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_003_seed6177912",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 8,
+      "seed": 6177912,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_004_seed8646902",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 8,
+      "seed": 8646902,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_005_seed4641714",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 8,
+      "seed": 4641714,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_006_seed2181429",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 8,
+      "seed": 2181429,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_007_seed1892590",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 8,
+      "seed": 1892590,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_008_seed8661274",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 8,
+      "seed": 8661274,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_009_seed2032084",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 8,
+      "seed": 2032084,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_010_seed7307519",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 10,
+      "n_agents": 8,
+      "seed": 7307519,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_001_seed5274410",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 12,
+      "n_agents": 8,
+      "seed": 5274410,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_002_seed2778653",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 12,
+      "n_agents": 8,
+      "seed": 2778653,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_003_seed4106169",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 12,
+      "n_agents": 8,
+      "seed": 4106169,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_004_seed7970435",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 12,
+      "n_agents": 8,
+      "seed": 7970435,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_005_seed4529516",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 12,
+      "n_agents": 8,
+      "seed": 4529516,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_006_seed8652217",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 12,
+      "n_agents": 8,
+      "seed": 8652217,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_007_seed9459400",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 12,
+      "n_agents": 8,
+      "seed": 9459400,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_008_seed2994379",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 12,
+      "n_agents": 8,
+      "seed": 2994379,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_009_seed5258094",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 12,
+      "n_agents": 8,
+      "seed": 5258094,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_010_seed5270421",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 12,
+      "n_agents": 8,
+      "seed": 5270421,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_001_seed5429663",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 10,
+      "seed": 5429663,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_002_seed714868",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 10,
+      "seed": 714868,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_003_seed3698289",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 10,
+      "seed": 3698289,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_004_seed5832384",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 10,
+      "seed": 5832384,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_005_seed9183140",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 10,
+      "seed": 9183140,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_006_seed2379064",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 10,
+      "seed": 2379064,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_007_seed6440881",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 10,
+      "seed": 6440881,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_008_seed7649636",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 10,
+      "seed": 7649636,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_009_seed9243246",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 10,
+      "seed": 9243246,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_010_seed1736317",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 10,
+      "seed": 1736317,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_001_seed6742955",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 12,
+      "seed": 6742955,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_002_seed3127423",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 12,
+      "seed": 3127423,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_003_seed4400490",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 12,
+      "seed": 4400490,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_004_seed144745",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 12,
+      "seed": 144745,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_005_seed7222573",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 12,
+      "seed": 7222573,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_006_seed325520",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 12,
+      "seed": 325520,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_007_seed3739535",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 12,
+      "seed": 3739535,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_008_seed4967018",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 12,
+      "seed": 4967018,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_009_seed6690190",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 12,
+      "seed": 6690190,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_010_seed4683125",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 15,
+      "n_agents": 12,
+      "seed": 4683125,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_001_seed8388723",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 12,
+      "seed": 8388723,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_002_seed1276904",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 12,
+      "seed": 1276904,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_003_seed2622444",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 12,
+      "seed": 2622444,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_004_seed2575625",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 12,
+      "seed": 2575625,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_005_seed3797751",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 12,
+      "seed": 3797751,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_006_seed31812",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 12,
+      "seed": 31812,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_007_seed4293187",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 12,
+      "seed": 4293187,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_008_seed3810678",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 12,
+      "seed": 3810678,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_009_seed5854313",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 12,
+      "seed": 5854313,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_010_seed5758731",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 12,
+      "seed": 5758731,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_001_seed2812551",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 17,
+      "seed": 2812551,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_002_seed4272988",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 17,
+      "seed": 4272988,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_003_seed5031399",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 17,
+      "seed": 5031399,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_004_seed8351023",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 17,
+      "seed": 8351023,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_005_seed768794",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 17,
+      "seed": 768794,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_006_seed6164912",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 17,
+      "seed": 6164912,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_007_seed801669",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 17,
+      "seed": 801669,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_008_seed2660839",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 17,
+      "seed": 2660839,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_009_seed4440386",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 17,
+      "seed": 4440386,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_010_seed8110221",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 20,
+      "n_agents": 17,
+      "seed": 8110221,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_001_seed3367773",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 25,
+      "n_agents": 18,
+      "seed": 3367773,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_002_seed4994868",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 25,
+      "n_agents": 18,
+      "seed": 4994868,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_003_seed5788743",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 25,
+      "n_agents": 18,
+      "seed": 5788743,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_004_seed7588103",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 25,
+      "n_agents": 18,
+      "seed": 7588103,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_005_seed3957783",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 25,
+      "n_agents": 18,
+      "seed": 3957783,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_006_seed5660891",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 25,
+      "n_agents": 18,
+      "seed": 5660891,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_007_seed8388437",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 25,
+      "n_agents": 18,
+      "seed": 8388437,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_008_seed4374404",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 25,
+      "n_agents": 18,
+      "seed": 4374404,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_009_seed9378838",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 25,
+      "n_agents": 18,
+      "seed": 9378838,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_010_seed3961545",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 25,
+      "n_agents": 18,
+      "seed": 3961545,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_001_seed4330236",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 30,
+      "n_agents": 20,
+      "seed": 4330236,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_002_seed222353",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 30,
+      "n_agents": 20,
+      "seed": 222353,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_003_seed5332232",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 30,
+      "n_agents": 20,
+      "seed": 5332232,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_004_seed4693508",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 30,
+      "n_agents": 20,
+      "seed": 4693508,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_005_seed4150799",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 30,
+      "n_agents": 20,
+      "seed": 4150799,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_006_seed6235584",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 30,
+      "n_agents": 20,
+      "seed": 6235584,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_007_seed5478158",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 30,
+      "n_agents": 20,
+      "seed": 5478158,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_008_seed9461134",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 30,
+      "n_agents": 20,
+      "seed": 9461134,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_009_seed4066405",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 30,
+      "n_agents": 20,
+      "seed": 4066405,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_010_seed4353261",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 30,
+      "n_agents": 20,
+      "seed": 4353261,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_001_seed8121414",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 35,
+      "n_agents": 22,
+      "seed": 8121414,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_002_seed4856414",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 35,
+      "n_agents": 22,
+      "seed": 4856414,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_003_seed2502649",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 35,
+      "n_agents": 22,
+      "seed": 2502649,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_004_seed5191151",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 35,
+      "n_agents": 22,
+      "seed": 5191151,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_005_seed5067284",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 35,
+      "n_agents": 22,
+      "seed": 5067284,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_006_seed4085910",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 35,
+      "n_agents": 22,
+      "seed": 4085910,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_007_seed5309178",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 35,
+      "n_agents": 22,
+      "seed": 5309178,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_008_seed5787957",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 35,
+      "n_agents": 22,
+      "seed": 5787957,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_009_seed9708215",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 35,
+      "n_agents": 22,
+      "seed": 9708215,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_010_seed703507",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 35,
+      "n_agents": 22,
+      "seed": 703507,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_001_seed9130312",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 40,
+      "n_agents": 22,
+      "seed": 9130312,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_002_seed4883838",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 40,
+      "n_agents": 22,
+      "seed": 4883838,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_003_seed3794758",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 40,
+      "n_agents": 22,
+      "seed": 3794758,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_004_seed6101448",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 40,
+      "n_agents": 22,
+      "seed": 6101448,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_005_seed1155990",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 40,
+      "n_agents": 22,
+      "seed": 1155990,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_006_seed7438791",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 40,
+      "n_agents": 22,
+      "seed": 7438791,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_007_seed942899",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 40,
+      "n_agents": 22,
+      "seed": 942899,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_008_seed4298303",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 40,
+      "n_agents": 22,
+      "seed": 4298303,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_009_seed2016924",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 40,
+      "n_agents": 22,
+      "seed": 2016924,
+      "network_type": "random"
+    },
+    {
+      "folder": "scenario_010_seed3028022",
+      "data_file": "scenario_data.pkl",
+      "n_waypoints": 40,
+      "n_agents": 22,
+      "seed": 3028022,
+      "network_type": "random"
+    }
+  ]
+}
