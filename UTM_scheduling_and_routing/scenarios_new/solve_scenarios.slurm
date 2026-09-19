@@ -9,17 +9,17 @@
 #SBATCH --job-name=solve-scenarios
 #SBATCH --output=slurm_logs/slurm-solve-%x-%a-%j.out
 #SBATCH --error=slurm_logs/slurm-solve-%x-%a-%j.err
-#SBATCH --nodelist=ccc0361
-#SBATCH --array=0-49%20
+#SBATCH --nodelist=ccc0363
+#SBATCH --array=0-159%50
 
 set -euo pipefail
 
 cd "$SLURM_SUBMIT_DIR"
 mkdir -p slurm_logs
 
-SCENARIO_ROOT="${SCENARIO_ROOT:-$SLURM_SUBMIT_DIR/scenarios}"
+SCENARIO_ROOT="${SCENARIO_ROOT:-$SLURM_SUBMIT_DIR/scenarios_new}"
 PYTHON_BIN="${PYTHON_BIN:-/projects/illinois/eng/mechse/salapaka/dhananjay/.venv/bin/python}"
-METHODS=("slsqp")
+METHODS=("cbf")
 TIME_LIMIT="${TIME_LIMIT:-12000}"
 
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"

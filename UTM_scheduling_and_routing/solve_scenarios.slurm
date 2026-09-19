@@ -24,7 +24,7 @@ set -euo pipefail
 
 cd "$SLURM_SUBMIT_DIR"
 
-SCENARIO_ROOT="${SCENARIO_ROOT:-$SLURM_SUBMIT_DIR/scenarios}"
+SCENARIO_ROOT="${SCENARIO_ROOT:-$SLURM_SUBMIT_DIR/scenarios_new}"
 PYTHON_BIN="/projects/illinois/eng/mechse/salapaka/dhananjay/.venv/bin/python"
 # PYTHON_BIN="${PYTHON_BIN:-$SLURM_SUBMIT_DIR/.venv/bin/python}"
 METHODS=("cbf" "slsqp" "seq")
