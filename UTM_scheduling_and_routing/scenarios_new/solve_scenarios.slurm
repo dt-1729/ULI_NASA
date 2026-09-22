@@ -21,6 +21,7 @@ SCENARIO_ROOT="${SCENARIO_ROOT:-$SLURM_SUBMIT_DIR/scenarios_new}"
 PYTHON_BIN="${PYTHON_BIN:-/projects/illinois/eng/mechse/salapaka/dhananjay/.venv/bin/python}"
 METHODS=("slsqp")
 TIME_LIMIT="${TIME_LIMIT:-12000}"
+SOURCE="${SOURCE:-utils}"
 
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
@@ -79,7 +80,8 @@ for METHOD in "${METHOD_ORDER[@]}"; do
     "$PYTHON_BIN" main.py solve \
         --scenario-path "$SCENARIO_PATH" \
         --methods "$METHOD" \
-        --time-limit "$TIME_LIMIT"
+        --time-limit "$TIME_LIMIT" \ 
+        --optimizer-config-source "$SOURCE"
 
     echo "Completed $METHOD at $(date --iso-8601=seconds)"
 done

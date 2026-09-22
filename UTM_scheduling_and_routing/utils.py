@@ -803,7 +803,7 @@ def set_mep_opt_config(solver_name):
     anneal_config = {
         'log_bmin':-6,
         'log_bmax':0,
-        'nb':10,
+        'nb':15,
         'ra':0.01,
         'rb':0.001,
         'rw':0.001,

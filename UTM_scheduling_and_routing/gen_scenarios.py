@@ -77,7 +77,7 @@ def build_mirs_instance(
     offset_energy: int = 1,
     stagewise_cost_coeffs: np.ndarray | None = None,
     self_hop: int = 0,
-    filter_wp_thresh: float = 1e-3,
+    filter_wp_thresh: float = 1e-1,
     prune_mode: bool = False,
     print_flag: bool = False,
     T_upper_bound: float = 10000,

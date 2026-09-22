@@ -173,7 +173,7 @@ def solve_cbf_scenario(
     T_array, V_array, F_vals, Pb_a, chi_array, t_compute_array = optimizer.anneal(
         T0,
         V0,
-        active_waypoints=active_waypoints,
+        active_waypoints=None,
         time_limit=time_limit,
         annealPrint=anneal_print,
     )

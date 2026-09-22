@@ -907,6 +907,7 @@ def plot_waypoint_agent_schedules(
 
     # Timeline appearance
     bar_thickness=0.12,
+    timeline_height=0.72,
     marker_size=200,
     index_size=480,
 
@@ -975,6 +976,16 @@ def plot_waypoint_agent_schedules(
 
     n_agents, n_waypoints = association_matrix.shape
 
+    # ``timeline_height`` is the total vertical height of each horizontal
+    # heat-map bar in y-axis units.  Consecutive waypoint rows are one unit
+    # apart, so values below 1.0 keep neighboring bars separate.
+    if timeline_height is None:
+        # Backward-compatible interpretation of the old half-height argument.
+        timeline_height = 2.0 * float(bar_thickness)
+    timeline_height = float(timeline_height)
+    if not 0.0 < timeline_height < 1.0:
+        raise ValueError("timeline_height must be between 0 and 1.")
+
     if len(tolArray) < n_waypoints:
         raise ValueError(
             f"tolArray has length {len(tolArray)}, but the problem has "
@@ -1040,7 +1051,7 @@ def plot_waypoint_agent_schedules(
     safety_norm = mpl.colors.Normalize(vmin=0.0, vmax=1.0)
 
     # ============================================================
-    # Adapt marker and marker-label sizes to the available height
+    # Adapt arrival-divider and label sizes to the available height
     # ============================================================
     figure_height_points = float(figuresize[1]) * 72.0
 
@@ -1048,15 +1059,13 @@ def plot_waypoint_agent_schedules(
         figure_height_points / max(n_active_waypoints, 1)
     )
 
-    effective_marker_size = max(
-        10.0,
-        min(marker_size * 4.0, 0.75 * available_points_per_row),
-    )
-
     effective_agent_font_size = max(
         12.0,
         min(index_size * 0.8, 0.35 * available_points_per_row),
     )
+
+    leftmost_label_x = None
+    largest_label_offset = 0.0
 
     # ============================================================
     # Draw waypoint rows
@@ -1090,68 +1099,62 @@ def plot_waypoint_agent_schedules(
 
             segment_color = safety_cmap(safety_score)
 
-            ax.fill_betweenx(
-                [
-                    row_idx - bar_thickness,
-                    row_idx + bar_thickness,
-                ],
-                time_1,
-                time_2,
+            ax.barh(
+                y=row_idx,
+                width=time_2 - time_1,
+                left=time_1,
+                height=timeline_height,
+                align="center",
                 color=segment_color,
                 alpha=0.50,
+                linewidth=0.0,
                 zorder=2,
             )
 
         # --------------------------------------------------------
-        # Draw agent markers and labels
+        # Draw arrivals in the same style as the agent-centric view:
+        # a white divider at the arrival time and an ID immediately
+        # to its left.  The safety-colored gap bands remain visible.
         # --------------------------------------------------------
+        row_time_span = (
+            float(np.ptp(sorted_times)) if len(sorted_times) > 1 else 1.0
+        )
+        label_offset = max(0.25, 0.012 * row_time_span)
+        largest_label_offset = max(largest_label_offset, label_offset)
+
         for arrival_time, agent_id in zip(
             sorted_times,
             sorted_agents,
         ):
             agent_id = int(agent_id)
-            agent_color = agent_colors[agent_id]
 
-            ax.plot(
+            # Draw the divider in data coordinates so it always spans the
+            # complete heat-map bar, regardless of output DPI or figure size.
+            ax.vlines(
                 arrival_time,
-                row_idx,
-                marker="s",
-                linestyle="none",
-                markersize=effective_marker_size,
-                markerfacecolor=agent_color,
-                markeredgecolor="white",
-                markeredgewidth=1.5,
+                row_idx - timeline_height / 2.0,
+                row_idx + timeline_height / 2.0,
+                colors="white",
+                linewidth=4.0,
                 zorder=5,
             )
 
-            # Select contrasting text color.
-            color_obj = mpl.colors.to_rgba(agent_color)
-            rgb = np.asarray(color_obj[:3], dtype=float)
-
-            luminance = (
-                0.2126 * rgb[0]
-                + 0.7152 * rgb[1]
-                + 0.0722 * rgb[2]
+            ax.text(
+                arrival_time - label_offset,
+                row_idx,
+                str(agent_id),
+                fontsize=effective_agent_font_size,
+                color="black",
+                ha="right",
+                va="center",
+                zorder=6,
             )
-
-            marker_text_color = (
-                "black" if luminance > 0.55 else "white"
+            label_x = arrival_time - label_offset
+            leftmost_label_x = (
+                label_x
+                if leftmost_label_x is None
+                else min(leftmost_label_x, label_x)
             )
-
-            # Use only the numeric index inside the marker.
-            # This is more compact than a_i for large scenarios.
-            # ax.text(
-            #     arrival_time,
-            #     row_idx,
-            #     str(agent_id),
-            #     fontsize=effective_agent_font_size,
-            #     color=marker_text_color,
-            #     ha="center",
-            #     va="center",
-            #     fontweight="bold",
-            #     zorder=6,
-            #     clip_on=True,
-            # )
 
     # ============================================================
     # Basic axis formatting
@@ -1174,6 +1177,16 @@ def plot_waypoint_agent_schedules(
     )
 
     ax.margins(x=0.03)
+
+    # Keep labels at the first arrivals from being clipped at the left edge.
+    if leftmost_label_x is not None:
+        current_x_min, current_x_max = ax.get_xlim()
+        x_span = max(current_x_max - current_x_min, 1.0)
+        left_padding = max(largest_label_offset, 0.08 * x_span)
+        ax.set_xlim(
+            min(current_x_min, leftmost_label_x - left_padding),
+            current_x_max,
+        )
 
     # ============================================================
     # Colorbar in a separate axis
