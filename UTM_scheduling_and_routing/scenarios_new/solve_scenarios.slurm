@@ -19,7 +19,7 @@ mkdir -p slurm_logs
 
 SCENARIO_ROOT="${SCENARIO_ROOT:-$SLURM_SUBMIT_DIR/scenarios_new}"
 PYTHON_BIN="${PYTHON_BIN:-/projects/illinois/eng/mechse/salapaka/dhananjay/.venv/bin/python}"
-METHODS=("cbf")
+METHODS=("slsqp")
 TIME_LIMIT="${TIME_LIMIT:-12000}"
 
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
