@@ -25,7 +25,7 @@ local_scenarios1/
 scenarios/
 scenarios_grid_small/
 scenarios_small/
-scenarios_new/
+# scenarios_new/
 
 # NOTE: scenarios/ is intentionally NOT ignored here.
 # It should be pushed from the cluster but not from personal machines.

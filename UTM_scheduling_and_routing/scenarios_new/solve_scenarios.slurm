@@ -80,7 +80,7 @@ for METHOD in "${METHOD_ORDER[@]}"; do
     "$PYTHON_BIN" main.py solve \
         --scenario-path "$SCENARIO_PATH" \
         --methods "$METHOD" \
-        --time-limit "$TIME_LIMIT" \ 
+        --time-limit "$TIME_LIMIT" \
         --optimizer-config-source "$SOURCE"
 
     echo "Completed $METHOD at $(date --iso-8601=seconds)"
