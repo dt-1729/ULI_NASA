@@ -1,0 +1,342 @@
+# import all the packages
+import numpy as np
+import matplotlib.pyplot as plt; plt.rcParams.update(plt.rcParamsDefault)
+import itertools
+import math
+import scipy.io as scio
+from scipy.spatial.distance import cdist
+import copy
+import time
+import pickle
+from scipy.optimize import minimize
+from matplotlib import patches
+import warnings
+from scipy.optimize import LinearConstraint
+from scipy.special import *
+import utils
+
+class flpoAgent():
+
+    def __init__(
+        self, 
+        n_wp:int, 
+        sd:list, 
+        sched:np.ndarray,
+        start_time:float, 
+        speed:float,
+        speedLim:np.ndarray, 
+        process_T:np.ndarray, 
+        INF:float,
+        offset_energy:bool,
+        selfHop:bool,
+        net_mask:np.ndarray,
+        stagewise_cost_coeffs:np.ndarray):
+
+        assert(sd[0] != sd[1])
+        self.n_wp = n_wp # number of waypoints
+        self.s = int(sd[0]) # starting waypoint index
+        self.d = int(sd[1]) # destination waypoint index
+        self.sched = sched # schedule at all the waypoints
+        self.start_time = start_time # start time of the agent
+        self.speed = speed # speed of the agent
+        self.stageHorizon = self.n_wp+1 # number of FLPO stages
+        self.speedLim = speedLim # minimum and maximum speeds allowed
+        self.mean_speed = np.mean(self.speedLim)
+        self.INF = INF
+        self.freeEnergy_s = -INF # initialize free energy of the vehicle (assuming beta = 0)
+        self.route = []
+        self.fin_sched = []
+        self.t_process = process_T # processing time of the vehicle at the waypoints
+        self.offset_energy = offset_energy
+        self.selfHop = selfHop
+        self.net_mask = net_mask.copy()
+        self.net_mask[self.d,:] = 0
+        self.net_mask[self.d, self.d] = 1
+        self.net_mask = self.net_mask + self.selfHop * np.eye(self.net_mask.shape[0])        
+        self.n_stagewise_paths()
+        self.stagewise_cost_coeffs = stagewise_cost_coeffs
+
+    
+    def n_stagewise_paths(self):
+        K = self.stageHorizon
+        n_paths = [0]*K
+        mask = self.net_mask
+        for i in range(K):
+            if i == 0: # start to first intermediate stage
+                n_paths[i] = np.sum(mask[self.s,:],keepdims=True)
+            elif i == K-1: # penultimate to final stage
+                n_paths[i] = mask[:,self.d].reshape(-1,1)
+            else:
+                n_paths[i] = np.sum(mask, axis=1, keepdims=True)
+
+        self.n_paths = n_paths
+        pass
+
+
+    def returnStageWiseCost_v1(self, sched, speed, distMat):
+        K = self.stageHorizon
+        Xi_flip = [0]*K
+        c0, c1, c2 = self.stagewise_cost_coeffs
+        dt_w2w = np.tile(sched, (self.n_wp, 1)) - np.tile(sched.reshape(-1,1), (1, self.n_wp))
+        dt_w2d = (np.array([sched[self.d]]) - sched).reshape(-1,1) 
+        dt_n2w = sched - np.array([sched[self.s]])
+
+        for i in range(K):
+            if i == 0: # penultimate stage to destination
+                Xi_flip[i] = c1*(dt_w2d - distMat[:,self.d].reshape(-1,1)/speed)**2 + c2*(distMat[:,self.d].reshape(-1,1)/speed)
+                Xi_flip[i][self.net_mask[:,self.d].reshape(-1,1)==0] = self.INF
+                Xi_flip[i][self.d,:] = 0
+            elif i>0 and i<K-1: # internal stages
+                Xi_flip[i] = c1*(dt_w2w - distMat/speed)**2 + c2*(distMat/speed)
+                Xi_flip[i][self.net_mask == 0] = self.INF
+                Xi_flip[i][self.d, self.d] = 0.0
+            elif i == K-1: # starting stage to 1st stage
+                Xi_flip[i] = np.expand_dims(
+                    c0*(sched[self.s]-self.start_time)**2 + c1*(dt_n2w - distMat[self.s,:]/speed)**2 + c2*(distMat[self.s,:]/speed), axis=0)
+                Xi_flip[i][self.net_mask[self.s,None] == 0] = self.INF
+        return Xi_flip[::-1]
+
+
+    def returnStagewiseGrad_v1(self, sched, speed, distMat):
+        Nw = self.n_wp
+        N_params = len(sched) + 1
+        K = self.stageHorizon
+        c0, c1, c2 = self.stagewise_cost_coeffs
+        G_w2w = np.zeros((N_params,Nw,Nw))
+        G_flip = [0]*K
+        mask = self.net_mask
+
+        # compute gradient for w2w transitions w.r.t. schedules
+        for k in range(N_params-1):
+            G_w2w[k,k,:] = 2*c1*(sched[k] - sched + distMat[k,:]/speed) 
+            G_w2w[k,:,k] = 2*c1*(sched[k] - sched - distMat[:,k]/speed)
+        
+        # compute gradient for w2w transitions w.r.t. speed
+        # G_w2w[N_params-1] = 2*distMat/speed**2 * (c1*(sched - sched.reshape(-1,1)) - (c1+c2)*distMat/speed)
+        G_w2w[N_params-1] = distMat/speed**2 * (2*c1*(sched - sched.reshape(-1,1)) - (2*c1+c2)*distMat/speed)
+
+        for i in range(K):
+            if i == 0: # penultimate stage to destination
+                
+                G_flip[i] = G_w2w[:,:,self.d].reshape(-1,Nw,1)* mask[:,self.d].reshape(-1,1)
+                G_flip[i][:,self.d,:] = 0
+            elif i == K-1: # start to first stage
+                G_start = (G_w2w[:,self.s,:]).reshape(-1,1,Nw)*mask[self.s,:]
+                G_off = np.zeros(G_start.shape)
+                G_off[self.s, :, :] = 2*c0*(sched[self.s]-self.start_time)*np.ones(Nw)*mask[self.s,:]
+                G_flip[i] = G_start + G_off
+            else:
+                G_flip[i] = G_w2w * mask
+                G_flip[i][:,self.d,:] = 0
+
+        return G_flip[::-1]
+
+
+    def returnStagewiseGrad_l(self, sched, speed, distMat, i, j):
+        # gradient of each stage-transition cost matrix w.r.t. the single edge length l_ij=distMat[i,j]
+        Nw = self.n_wp
+        K = self.stageHorizon
+        c0, c1, c2 = self.stagewise_cost_coeffs
+        edge_exists = self.net_mask[i, j] != 0
+
+        if edge_exists:
+            dt_ij = sched[j] - sched[i]
+            deriv = -2*c1/speed*(dt_ij - distMat[i,j]/speed) + c2/speed
+        else:
+            deriv = 0.0
+
+        G_flip = [0]*K
+        for stage in range(K):
+            if stage == 0: # penultimate stage to destination: transition (i,j) only present when j is the destination
+                G_flip[stage] = np.zeros((1, Nw, 1))
+                if edge_exists and j == self.d and i != self.d:
+                    G_flip[stage][0, i, 0] = deriv
+            elif stage == K-1: # start stage to first stage: transition (i,j) only present when i is the start node
+                G_flip[stage] = np.zeros((1, 1, Nw))
+                if edge_exists and i == self.s:
+                    G_flip[stage][0, 0, j] = deriv
+            else: # internal stages: transition (i,j) present whenever i is not the destination
+                G_flip[stage] = np.zeros((1, Nw, Nw))
+                if edge_exists and i != self.d:
+                    G_flip[stage][0, i, j] = deriv
+
+        return G_flip[::-1]
+
+
+    def backPropDP(self, Xi_s, beta, returnPb=True):
+        t0 = time.time()
+        K = self.stageHorizon
+        Lambda_flip = [0]*K
+        Value_flip = [0]*K
+        Xi_flip = Xi_s[::-1]
+        p_flip = [0]*K
+        n_paths_flip = self.n_paths[::-1]
+        for i in range(K):
+            if i == 0:
+                Lambda_flip[i] = Xi_flip[i]
+                Value_flip[i] = Xi_flip[i]
+                minLambda = Lambda_flip[i].min(axis=1,keepdims=True)
+                exp_beta = np.exp(-beta*(Lambda_flip[i] - minLambda))
+            else:
+                Lambda_flip[i] = Xi_flip[i] + np.tile(np.transpose(Value_flip[i-1]), (Xi_flip[i].shape[0],1))
+                m = n_paths_flip[i]
+                minLambda = Lambda_flip[i].min(axis=1,keepdims=True)
+                exp_beta = np.exp(-beta*(Lambda_flip[i] - minLambda))
+                log_exp_beta = np.log(exp_beta.sum(axis=1,keepdims=True))
+                Value_flip[i] = -1/beta*log_exp_beta + minLambda + self.offset_energy*1/beta*np.log(m)
+            if returnPb:
+                p_flip[i] = exp_beta/exp_beta.sum(axis=1, keepdims=True)
+        tf = time.time()
+        finalCost = np.sum(Value_flip[K-1])
+        return Lambda_flip[::-1], Value_flip[::-1], finalCost, tf-t0, p_flip[::-1]
+
+
+    def getFreeEnergy_s(self, sched, distMat, beta, gamma, coeff):
+        Xi = self.returnStageWiseCost(sched, distMat, gamma, coeff)
+        _, _, freeEnergy_s, _, _ = self.backPropDP(Xi, beta, returnPb=False)
+        self.freeEnergy_s = freeEnergy_s
+        return freeEnergy_s
+
+    def getPathAssociations(self, sched, dist_mat, beta, gamma, coeff):
+        Xi = self.returnStageWiseCost(sched=sched, distMat=dist_mat, gamma=gamma, coeff=coeff)
+        _, _, _, _, Pb = self.backPropDP(Xi_s=Xi, beta=beta, returnPb=True)
+        return Pb
+
+    def getFreeEnergy_s_v1(self, sched, speed, distMat, beta):
+        Xi = self.returnStageWiseCost_v1(sched=sched, speed=speed, distMat=distMat)
+        _, _, freeEnergy_s, _, _ = self.backPropDP(Xi_s=Xi, beta=beta, returnPb=False)
+        self.freeEnergy_s = freeEnergy_s
+        return freeEnergy_s
+
+    def getPathAssociations_v1(self, sched, speed, dist_mat, beta):
+        Xi = self.returnStageWiseCost_v1(sched=sched, speed=speed, distMat=dist_mat)
+        _, _, _, _, Pb = self.backPropDP(Xi_s=Xi, beta=beta, returnPb=True)
+        return Pb
+
+    def backPropDP_grad(self, GD_s, P):
+        K = self.stageHorizon
+        GV_flip = [0]*K
+        GD_flip = GD_s[::-1]
+        P_flip = P[::-1]
+        for i in range(K):
+            if i == 0: # from penultimate stage to the destination
+                GV_flip[i] = GD_flip[i]
+            else: # intermediate stages
+                GV_flip[i] = np.sum(P_flip[i] * GD_flip[i], axis=2, keepdims=True) + P_flip[i] @ GV_flip[i-1]
+        G_freeEnergy = GV_flip[-1].squeeze()
+        return G_freeEnergy, GV_flip[::-1]
+
+    def calc_probability_of_reach(self, Pb):
+        Pb_reach = [0]*(self.stageHorizon+1) # equal to the number of intermediate stages (=#waypoints currently)
+        reach_mat = []
+        for i in range(self.stageHorizon+1):
+            if i==0:
+                Pb_reach[i] = np.array([1.0]) # probability of reaching start position is 1
+            else:
+                Pb_reach[i] = np.dot(np.transpose(Pb[i-1]),Pb_reach[i-1])
+                if i < self.stageHorizon:
+                    reach_mat.append(Pb_reach[i])
+        reach_mat = np.array(reach_mat)
+        reach_array = np.max(reach_mat,axis=0)
+        reach_array[self.s] = 1.0
+        return reach_array
+
+    def calc_agent_wp_association(self, Pb):
+        Nw = self.n_wp
+        K = self.stageHorizon
+        Pb_nogo_flip = [0]*K
+        Pb_reach_flip = [0]*K
+        Pb_flip = Pb[::-1]
+        for i in range(K):
+            if i==0:
+                Pb_nogo_flip[i] = np.ones((Nw,Nw))
+                Pb_nogo_flip[i][:,self.d] = np.zeros(Nw)
+            # elif i==K-1:
+            #     Pb_nogo_flip[i] = np.dot(Pb_flip[i], Pb_nogo_flip[i-1]) - Pb_flip[i]*np.diag(Pb_nogo_flip[i-1])
+            else:
+                Pb_nogo_flip[i] = np.dot(Pb_flip[i], Pb_nogo_flip[i-1]) - np.dot(Pb_flip[i],(Pb_nogo_flip[i-1]*np.eye(Nw)))
+            
+            Pb_reach_flip[i] = 1.0 - Pb_nogo_flip[i]
+
+        Pb_reach_flip[-1][0,self.s] = 1.0
+
+        return Pb_reach_flip[::-1]
+
+
+    def calc_route_and_schedule(self, sched, dist_mat, Pb):
+        O = [self.s]
+        T = [self.start_time, sched[self.s]]
+        speeds = []
+        m_prev = self.s
+        dist = 0
+        # Pb = self.getPathAssociations(sched=sched, dist_mat=dist_mat, beta=beta, gamma=gamma, coeff=coeff)
+        for i,p in enumerate(Pb):
+            if i==0:
+                m = int(np.argmax(p[0,:]))
+            else:
+                m = int(np.argmax(p[m,:]))
+            O.append(m)
+            T.append(sched[m])
+            dist = dist + dist_mat[m_prev, m]
+            speed = dist_mat[m_prev, m]/(sched[m]-sched[m_prev])
+            speeds.append(speed)
+            if m == self.d:
+                break
+            else:
+                m_prev = m
+        self.route = O
+        self.fin_sched = T
+        # self.fin_avg_speed = dist/(T[-1]-T[0])
+        self.fin_avg_speed = np.mean(speeds)
+        self.route_speed = speeds
+
+
+    def showGraph(self, wpLocations, distMat, mask, sched, figuresize, showEdgeTimeLim=True):
+
+        vmin = self.speedLim[0]
+        vmax = self.speedLim[1]
+        start_node = self.s
+        destination_node = self.d
+
+        # Create a figure for the plot
+        plt.figure(figsize=figuresize)
+
+        # Plot the nodes
+        for i, (x, y) in enumerate(wpLocations):
+            if i == start_node:
+                plt.scatter(x, y, color='green', marker='v', s=100, label="Start Node")  # Start node in green
+            elif i == destination_node:
+                plt.scatter(x, y, color='red', s=100, marker='s', label="Destination Node")  # Destination node in red
+            else:
+                plt.scatter(x, y, color='skyblue', s=100)  # Other nodes
+            # plt.text(x, y, f'{i}', fontsize=10, ha='right', va='bottom')  # Label the nodes
+            plt.text(x, y, f't[{i}]={sched[i]:.2f}', fontsize=10, ha='left', va='top')  # Label the nodes
+
+        # Plot the edges and annotate times
+        for i in range(len(wpLocations)):
+            for j in range(i + 1, len(wpLocations)):  # Only iterate over the upper triangle of the adjacency matrix
+                if mask[i, j] == 1:
+                    # Draw an edge (a line) between node i and node j
+                    plt.plot([wpLocations[i, 0], wpLocations[j, 0]], [wpLocations[i, 1], wpLocations[j, 1]], color='gray')
+
+                    if showEdgeTimeLim:
+                        # Calculate the distance between node i and node j
+                        distance = distMat[i,j]
+                        
+                        # Calculate minimum and maximum time to travel
+                        t_min = distance / vmax
+                        t_max = distance / vmin
+                        
+                        # Annotate the edge with the min/max times
+                        mid_x = (wpLocations[i, 0] + wpLocations[j, 0]) / 2
+                        mid_y = (wpLocations[i, 1] + wpLocations[j, 1]) / 2
+                        plt.text(mid_x, mid_y, rf'$[{t_min:.2f},{t_max:.2f}]$', fontsize=10, color='red', ha='center', va='center')
+
+        # Set axis labels and title
+        plt.xlabel('X Coordinate')
+        plt.ylabel('Y Coordinate')
+        plt.title('Graph with Travel Times and Vehicle Path')
+        # Show legend for start and destination nodes
+        plt.legend()
+        # Show the plot
+        plt.show()

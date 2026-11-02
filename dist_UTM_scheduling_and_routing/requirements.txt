@@ -1,0 +1,8 @@
+numpy
+scipy
+matplotlib
+cvxpy
+gurobipy
+networkx
+tabulate
+Pillow
