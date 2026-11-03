@@ -4,5 +4,6 @@ matplotlib
 cvxpy
 gurobipy
 networkx
+osqp
 tabulate
 Pillow

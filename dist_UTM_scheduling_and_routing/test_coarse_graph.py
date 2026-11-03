@@ -13,7 +13,9 @@ adj = np.triu(h.mask > 0, 1)
 cross = adj & (h.partition[:, None] != h.partition[None, :])
 print(f"edges: {adj.sum()} total, {cross.sum()} inter-subgraph; "
       f"boundary nodes: {len(h.boundary_nodes())}/{h.n_waypoints}; "
-      f"coarse graph: {len(h.coarse_nodes)} nodes, {int(np.triu(h.coarse_mask, 1).sum())} edges")
+      f"coarse graph: {len(h.coarse_nodes)} nodes "
+      f"({h.coarse_node_counts()[0]} boundary + {h.coarse_node_counts()[1]} entry/exit-only), "
+      f"{int(np.triu(h.coarse_mask, 1).sum())} edges")
 
 fig, axes = plt.subplots(1, 2, figsize=(16, 8))
 plot_original(axes[0], h)

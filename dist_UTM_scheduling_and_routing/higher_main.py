@@ -120,19 +120,34 @@ def solve_scenario(
         final_beta,
     )
     output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     network_plot_path = output_path.parent / "network_plot_coarse_cbf.png"
     schedule_plot_path = output_path.parent / "schedule_plot_coarse_cbf.png"
+    agent_schedule_plot_path = (
+        output_path.parent / "agent_schedule_plot_coarse_cbf.png"
+    )
     visualization.plot_solution_network(
         mirs.coarse_graph,
         routes,
         route_schedules,
         save_path=network_plot_path,
     )
+    visualization.plot_solution_waypoint_schedules(
+        routes,
+        route_schedules,
+        mirs.sd_mat,
+        scenario["tolArray"],
+        save_path=schedule_plot_path,
+    )
     visualization.plot_solution_schedules(
         routes,
         route_schedules,
         mirs.sd_mat,
-        save_path=schedule_plot_path,
+        save_path=agent_schedule_plot_path,
+    )
+    subgraph_visits = mirs.coarse_graph.subgraph_agent_visits(routes, route_schedules)
+    subgraph_plot_paths = visualization.plot_subgraph_visits(
+        subgraph_visits, output_path.parent / "subgraph_plots"
     )
     reach_mat, association_mat = mirs.calc_agent_reach_mat_v1(
         final_schedule, final_speed, final_beta
@@ -162,8 +177,10 @@ def solve_scenario(
         "runtime": runtime,
         "network_plot": str(network_plot_path),
         "schedule_plot": str(schedule_plot_path),
+        "agent_schedule_plot": str(agent_schedule_plot_path),
+        "subgraph_visits": subgraph_visits,
+        "subgraph_plots": [str(path) for path in subgraph_plot_paths],
     }
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("wb") as file:
         pickle.dump(solution, file)
 
@@ -172,14 +189,17 @@ def solve_scenario(
     print(f"Final cost: {F_values[-1]:.6g}")
     print(f"Runtime: {runtime:.2f} s")
     print(f"Saved solution: {output_path}")
-    print(f"Saved plots: {network_plot_path}, {schedule_plot_path}")
+    print(
+        f"Saved plots: {network_plot_path}, {schedule_plot_path}, "
+        f"{agent_schedule_plot_path}"
+    )
     for i, route in enumerate(routes):
         print(f"Agent {i}: route={route}, schedule={np.round(route_schedules[i], 3)}")
     return solution
 
 
 def visualize_saved_solution(solution_path, output_dir=None):
-    """Regenerate coarse network and schedule plots from a saved solution pickle."""
+    """Regenerate coarse network and both schedule views from a saved solution."""
     solution_path = Path(solution_path)
     with solution_path.open("rb") as file:
         solution = pickle.load(file)
@@ -197,6 +217,7 @@ def visualize_saved_solution(solution_path, output_dir=None):
     output_dir.mkdir(parents=True, exist_ok=True)
     network_plot_path = output_dir / "network_plot_coarse_cbf.png"
     schedule_plot_path = output_dir / "schedule_plot_coarse_cbf.png"
+    agent_schedule_plot_path = output_dir / "agent_schedule_plot_coarse_cbf.png"
 
     visualization.plot_solution_network(
         coarse_graph,
@@ -204,14 +225,31 @@ def visualize_saved_solution(solution_path, output_dir=None):
         solution["route_schedules"],
         save_path=network_plot_path,
     )
+    visualization.plot_solution_waypoint_schedules(
+        solution["routes"],
+        solution["route_schedules"],
+        np.asarray(scenario["sd_mat"]),
+        scenario["tolArray"],
+        save_path=schedule_plot_path,
+    )
     visualization.plot_solution_schedules(
         solution["routes"],
         solution["route_schedules"],
         np.asarray(scenario["sd_mat"]),
-        save_path=schedule_plot_path,
+        save_path=agent_schedule_plot_path,
     )
-    print(f"Saved plots: {network_plot_path}, {schedule_plot_path}")
-    return network_plot_path, schedule_plot_path
+    subgraph_plot_paths = visualization.plot_subgraph_visits(
+        coarse_graph.subgraph_agent_visits(
+            solution["routes"], solution["route_schedules"]
+        ),
+        output_dir / "subgraph_plots",
+    )
+    print(
+        f"Saved plots: {network_plot_path}, {schedule_plot_path}, "
+        f"{agent_schedule_plot_path}"
+    )
+    print(f"Saved {len(subgraph_plot_paths)} subgraph plots in {output_dir / 'subgraph_plots'}")
+    return network_plot_path, schedule_plot_path, agent_schedule_plot_path
 
 
 def _make_parser():
@@ -303,7 +341,7 @@ def main():
     output_path = (
         Path(args.output)
         if args.output
-        else scenario_folder / "solution_coarse_cbf.pkl"
+        else scenario_folder / "coarse" / "solution_coarse_cbf.pkl"
     )
     solve_scenario(
         scenario,
