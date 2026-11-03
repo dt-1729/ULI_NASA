@@ -35,14 +35,27 @@ def plot_coarse(ax, h):
     loc, mask = h.coarse_wp_locations, h.coarse_mask > 0
     cmap = plt.get_cmap("tab10")
     for a, b in zip(*np.where(np.triu(mask, 1))):
-        ax.plot(*zip(loc[a], loc[b]), color="gray", lw=1, zorder=1)
+        ax.plot(*zip(loc[a], loc[b]), color="gray", lw=0.7, alpha=0.4, zorder=1)
     colors = [cmap(h.partition[f] % 10) for f in h.coarse_nodes]
-    ax.scatter(*loc.T, c=colors, s=80, zorder=2)
-    agent_nodes = set(h.coarse_sd_mat.ravel().tolist())
-    ax.scatter(*loc[sorted(agent_nodes)].T, marker="*", s=200, c="gold", edgecolors="k", zorder=3,
-               label="agent entry/exit")
+    shared = np.unique(h.shared_nodes)
+    other = np.setdiff1d(np.arange(len(loc)), shared)
+
+    # entry/exit-only nodes are faint; shared (boundary) nodes are large, opaque and outlined
+    ax.scatter(*loc[other].T, c=[colors[i] for i in other], s=40, alpha=0.3, zorder=2)
+    ax.scatter(*loc[shared].T, c=[colors[i] for i in shared], s=190, edgecolors="k",
+               linewidths=1.8, zorder=4, label="shared (boundary) node")
+
+    starts = sorted(set(h.coarse_sd_mat[:, 0].tolist()))
+    exits = sorted(set(h.coarse_sd_mat[:, 1].tolist()))
+    ax.scatter(*loc[starts].T, marker="^", s=70, c="none", edgecolors="goldenrod",
+               linewidths=1.2, alpha=0.6, zorder=3, label="agent entry")
+    ax.scatter(*loc[exits].T, marker="s", s=70, c="none", edgecolors="teal",
+               linewidths=1.2, alpha=0.6, zorder=3, label="agent exit")
     for c, f in enumerate(h.coarse_nodes):
-        ax.annotate(str(f), loc[c], fontsize=7, ha="center", va="center", zorder=4)
+        is_shared = c in shared
+        ax.annotate(str(f), loc[c], fontsize=8 if is_shared else 6, ha="center", va="center",
+                    fontweight="bold" if is_shared else "normal",
+                    alpha=1.0 if is_shared else 0.5, zorder=5)
     n_boundary, n_entry_exit, n_total = h.coarse_node_counts()
     ax.set_title(
         f"Coarse graph: {n_total} nodes ({n_boundary} boundary + {n_entry_exit} entry/exit-only), "

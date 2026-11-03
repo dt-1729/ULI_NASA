@@ -58,8 +58,9 @@ class heir_MIRS:
         dist = self.dist_mat
         part = self.partition
         selected = {(min(i, j), max(i, j)) for i, j in self.selected_edges}
-
+        
         self.coarse_nodes = np.unique(np.concatenate([self.sd_mat.ravel(), self.boundary_nodes()]))
+        print(f"boundary nodes: {self.boundary_nodes()}")
         n = len(self.coarse_nodes)
         self.fine_to_coarse = {int(f): c for c, f in enumerate(self.coarse_nodes)}
 

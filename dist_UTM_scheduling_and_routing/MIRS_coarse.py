@@ -22,7 +22,7 @@ class MIRS_coarse:
         ca_cbf=None,
         filter_wp_thresh=0.0,
         prune_mode=False,
-        printFlag=False,
+        printFlag=True,
         T_upper_bound=10000,
     ):
         self.INF = 1e8
@@ -106,8 +106,10 @@ class MIRS_coarse:
         for i in range(self.n_agents):
             graph = self.coarse_graph.agent_graph(i)
             start_wp = int(self.sd_mat[i, 0])
+            print(f"agent {i}: shared_nodes: {len(self.coarse_graph.shared_nodes)}")
             stage_nodes = np.append(self.coarse_graph.shared_nodes, self.coarse_graph.coarse_sd_mat[i, 1])
             stage_waypoints = self.coarse_graph.coarse_nodes[stage_nodes]
+            # print(f"agent {i}: stage_nodes={len(stage_nodes)}, stage_waypoints={len(stage_waypoints)}")
             sched_indices = np.append(start_wp, stage_waypoints)
             self.agent_stage_waypoints.append(stage_waypoints)
             self.agent_sched_indices.append(sched_indices)
