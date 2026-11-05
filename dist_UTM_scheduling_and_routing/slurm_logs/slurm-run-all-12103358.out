@@ -1,0 +1,42 @@
+Generated scenario: scenarios/multi_nwp60_na6_p3_seed1
+=== Higher level ===
+Coarse waypoints: 16
+Final beta: 1
+Final cost: 20.8849
+Runtime: 94.55 s
+Saved solution: scenarios/multi_nwp60_na6_p3_seed1/coarse/solution_coarse_cbf.pkl
+Saved plots: scenarios/multi_nwp60_na6_p3_seed1/coarse/network_plot_coarse_cbf.png, scenarios/multi_nwp60_na6_p3_seed1/coarse/schedule_plot_coarse_cbf.png, scenarios/multi_nwp60_na6_p3_seed1/coarse/agent_schedule_plot_coarse_cbf.png
+Agent 0: route=[8, 26, 34], schedule=[  0.      0.819  57.806 155.721 200.771]
+Agent 1: route=[2, 47, 48], schedule=[  0.      0.635  75.089 130.413 175.057]
+Agent 2: route=[8, 3], schedule=[  0.      1.878  63.161 100.928]
+Agent 3: route=[2, 47, 54], schedule=[  0.      3.514 106.219 182.533 215.04 ]
+Agent 4: route=[47, 2, 8], schedule=[  0.      1.686  20.818  71.012 128.565]
+Agent 5: route=[8, 26, 36], schedule=[  0.      0.7    72.099 148.604 219.823]
+=== Lower level ===
+Subgraph 0: agents=[1, 5, 0, 3, 2, 4], final cost=61.7681, runtime=49.7 s
+  Agent 1: route=[5, 19, 2], schedule=[ 0.635  1.291 41.138 73.262]
+  Agent 5: route=[13, 10, 12, 8], schedule=[ 0.7    1.712 33.834 55.25  70.391]
+  Agent 0: route=[16, 6, 14, 8], schedule=[ 0.819  0.819 17.889 46.609 57.806]
+  Agent 3: route=[1, 12, 10, 2], schedule=[ 3.514  7.127 36.483 62.734 99.842]
+  Agent 2: route=[8, 7, 6, 3], schedule=[ 63.161  63.161  71.967  80.773 100.928]
+  Agent 4: route=[2, 19, 14, 8], schedule=[ 71.012  71.012 106.312 115.351 128.565]
+Subgraph 1: agents=[5, 0], final cost=97.0888, runtime=8.2 s
+  Agent 5: route=[26, 23, 37, 36], schedule=[148.604 148.604 173.611 209.985 219.823]
+  Agent 0: route=[26, 34], schedule=[155.721 157.136 184.013]
+Subgraph 2: agents=[4, 1, 3], final cost=15.4209, runtime=13.9 s
+  Agent 4: route=[41, 42, 47], schedule=[ 1.686  2.078 10.578 19.076]
+  Agent 1: route=[47, 42, 41, 48], schedule=[130.413 130.413 140.667 150.92  175.057]
+  Agent 3: route=[47, 54], schedule=[182.533 183.279 207.058]
+Saved subgraph 0 solution and plots in scenarios/multi_nwp60_na6_p3_seed1/subgraphs/subgraph_0
+Saved subgraph 1 solution and plots in scenarios/multi_nwp60_na6_p3_seed1/subgraphs/subgraph_1
+Saved subgraph 2 solution and plots in scenarios/multi_nwp60_na6_p3_seed1/subgraphs/subgraph_2
+Combined solution: max exit/entry overlap=0
+  Agent 0: route=[6, 14, 8, 26, 34], schedule=[  0.819   0.819  17.889  46.609  57.806 157.136 184.013]
+  Agent 1: route=[19, 2, 47, 42, 41, 48], schedule=[  1.291   1.291  41.138  73.262 130.413 140.667 150.92  175.057]
+  Agent 2: route=[8, 7, 6, 3], schedule=[  1.878   1.878  63.161  71.967  80.773 100.928]
+  Agent 3: route=[12, 10, 2, 47, 54], schedule=[  7.127   7.127  36.483  62.734  99.842 183.279 207.058]
+  Agent 4: route=[42, 47, 2, 19, 14, 8], schedule=[  2.078   2.078  10.578  19.076  71.012 106.312 115.351 128.565]
+  Agent 5: route=[10, 12, 8, 26, 23, 37, 36], schedule=[  1.712   1.712  33.834  55.25   70.391 148.604 173.611 209.985 219.823]
+Saved combined plots: scenarios/multi_nwp60_na6_p3_seed1/combined/network_plot_full.png, scenarios/multi_nwp60_na6_p3_seed1/combined/schedule_plot_full.png, scenarios/multi_nwp60_na6_p3_seed1/combined/agent_schedule_plot_full.png
+Saved combined solution: scenarios/multi_nwp60_na6_p3_seed1/combined/solution_combined.pkl
+Pipeline finished in 175.4 s (outputs in scenarios/multi_nwp60_na6_p3_seed1)
