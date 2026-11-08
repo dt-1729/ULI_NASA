@@ -70,10 +70,13 @@ def init_agent_params(
     if mode == 'lin_static':
         if tolArray is None:
             tolArray = np.ones(n_waypoints)
+        # Release times are identical across all methods; only the initial schedule is
+        # offset so every agent pair starts with |dT| >= tol at all waypoints
         start_times = space_agent_start_times(sd_mat, tolArray)
         max_tol = float(np.max(tolArray))
+        agent_offset = np.arange(n_agents, dtype=float) * (max_tol + float(np.max(start_times)))
         waypoint_drift = np.linspace(0.0, max_tol * 2.25, n_waypoints)
-        sched_mat = start_times[:, None] + waypoint_drift[None, :]
+        sched_mat = start_times[:, None] + agent_offset[:, None] + waypoint_drift[None, :]
     else:
         sched_mat = np.random.uniform(0.0, 50.0, (n_agents, n_waypoints))
         if tolArray is None:

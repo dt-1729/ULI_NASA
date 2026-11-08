@@ -4,11 +4,12 @@ import argparse
 import json
 import pickle
 import time
+from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import matplotlib.pyplot as plt
-from matplotlib.ticker import ScalarFormatter
+from matplotlib.ticker import LogFormatterMathtext, LogLocator, ScalarFormatter
 import numpy as np
 
 import MIRS
@@ -19,9 +20,40 @@ import seq_opt
 import utils
 import visualize
 
-
 DEFAULT_SCENARIO_ROOT = Path("local_scenarios")
-SUPPORTED_METHODS = ("cbf", "slsqp", "cbf_static", "slsqp_static", "gurobi", "cbs", "seq")
+SUPPORTED_METHODS = (
+    "cbf",
+    "mep_cbf_pruned",
+    "slsqp",
+    "cbf_static",
+    "slsqp_static",
+    "gurobi",
+    "cbs",
+    "seq",
+)
+METHOD_LABELS = {
+    "cbf": "MEP-CBF",
+    "mep_cbf_pruned": "MEP-CBF-P",
+    "slsqp": "MEP-SLSQP",
+    "cbf_static": "MEP-CBF Static",
+    "slsqp_static": "MEP-SLSQP Static",
+    "gurobi": "Gurobi",
+    "cbs": "CBS",
+    "seq": "SEQ-SPS",
+}
+COMPARISON_METRICS = (
+    "makespan",
+    "pct_cost_reduction",
+    "normalized_mean_cost_performance",
+    "runtime",
+    "conflict_rate",
+    "mean_conflict_deficit",
+    "temporal_constraint_violation",
+)
+
+
+def _method_display_name(method: str) -> str:
+    return METHOD_LABELS.get(method, method.upper())
 
 
 def load_scenario_data(scenario_dir: Path) -> Dict[str, Any]:
@@ -58,6 +90,7 @@ def output_filename_for_method(method: str) -> str:
     method = method.lower()
     mapping = {
         "cbf": "solution_cbf.pkl",
+        "mep_cbf_pruned": "solution_mep_cbf_pruned.pkl",
         "slsqp": "solution_slsqp.pkl",
         "cbf_static": "solution_cbf_static.pkl",
         "slsqp_static": "solution_slsqp_static.pkl",
@@ -90,15 +123,7 @@ def _base_solution_data(
         summary = {}
 
     payload = {
-        "name": {
-            "cbf": "MEP_CBF",
-            "slsqp": "MEP_SLSQP",
-            "cbf_static": "MEP_CBF_STATIC",
-            "slsqp_static": "MEP_SLSQP_STATIC",
-            "gurobi": "GUROBI",
-            "cbs": "CBS",
-                "seq": "SEQUENTIAL_SHORTEST_PATH",
-        }[method],
+        "name": METHOD_LABELS[method],
         "n_agents": mirs.n_agents,
         "wp_xy": summary.get("wp_locations", mirs.wp_locations),
         "wp_params": scenario_data.get("network_params", scenario_data["mirs_constructor_kwargs"]["wp_params"]),
@@ -134,11 +159,27 @@ def _base_solution_data(
         payload["T_array"] = T_array
     if V_array is not None:
         payload["V_array"] = V_array
-    if method in {"cbf", "slsqp", "cbf_static", "slsqp_static"}:
+    if method in {"cbf", "mep_cbf_pruned", "slsqp", "cbf_static", "slsqp_static"}:
         payload["cbf_mode"] = scenario_data["mirs_constructor_kwargs"]["ca_cbf"]
 
     payload.update(extra)
     return payload
+
+
+def get_common_initial_conditions(scenario_data: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray]:
+    """Initial (T0, V0) shared by every optimizer-based method for a scenario.
+
+    Built with the static (lin_static) barrier so that all agent pairs start
+    separated by at least the waypoint tolerance, which the static methods need
+    for a feasible first QP step.
+    """
+    kwargs = dict(scenario_data["mirs_constructor_kwargs"])
+    kwargs["ca_cbf"] = utils.get_cbf_mode("lin_static", np.asarray(scenario_data["tol_array"]))
+    static_mirs = MIRS.MIRS(**kwargs)
+    return (
+        np.array(static_mirs.sched_mat, dtype=float),
+        np.array(static_mirs.speed_vec, dtype=float),
+    )
 
 
 def solve_cbf_scenario(
@@ -152,8 +193,7 @@ def solve_cbf_scenario(
     mirs = reconstruct_mirs_from_scenario(scenario_data)
 
     initial_conditions = scenario_data["initial_conditions"]
-    T0 = np.array(initial_conditions["T0"], dtype=float)
-    V0 = np.array(initial_conditions["V0"], dtype=float)
+    T0, V0 = get_common_initial_conditions(scenario_data)
     active_waypoints = list(initial_conditions["active_waypoints"])
 
     key = "cbf_static_mep" if method_name == "cbf_static" else "cbf_mep"
@@ -232,8 +272,7 @@ def solve_slsqp_scenario(
     mirs = reconstruct_mirs_from_scenario(scenario_data)
 
     initial_conditions = scenario_data["initial_conditions"]
-    T0 = np.array(initial_conditions["T0"], dtype=float)
-    V0 = np.array(initial_conditions["V0"], dtype=float)
+    T0, V0 = get_common_initial_conditions(scenario_data)
     active_waypoints = list(initial_conditions["active_waypoints"])
 
     key = "slsqp_static_mep" if method_name == "slsqp_static" else "slsqp_mep"
@@ -411,8 +450,15 @@ def solve_scenario_by_method(
     cbs_time_step: float = 1.0,
     cbs_horizon: float | None = None,
     optimizer_config_source: str = "scenario",
+    prune_mode: bool | None = None,
 ) -> Dict[str, Any]:
     method = method.lower()
+    if method == "cbf":
+        prune_mode = False
+    elif method == "mep_cbf_pruned":
+        prune_mode = True
+    if prune_mode is not None:
+        scenario_data["mirs_constructor_kwargs"]["prune_mode"] = prune_mode
     if method == "cbs":
         return cbs_search.solve_cbs_scenario(
             scenario_dir,
@@ -420,7 +466,7 @@ def solve_scenario_by_method(
             time_step=cbs_time_step,
             horizon=cbs_horizon,
         )
-    if method in {"cbf", "cbf_static"}:
+    if method in {"cbf", "mep_cbf_pruned", "cbf_static"}:
         original_cbf = scenario_data["mirs_constructor_kwargs"].get("ca_cbf")
         try:
             if method == "cbf_static":
@@ -457,13 +503,14 @@ def solve_all_scenarios(
     cbs_time_step: float = 1.0,
     cbs_horizon: float | None = None,
     optimizer_config_source: str = "scenario",
+    prune_mode: bool | None = None,
 ) -> List[Path]:
     scenario_dirs = list_scenario_dirs(root_dir)
     solved_paths: List[Path] = []
 
-    print(f"[{method.upper()}] Starting solve for {len(scenario_dirs)} scenarios in {root_dir}")
+    print(f"[{_method_display_name(method)}] Starting solve for {len(scenario_dirs)} scenarios in {root_dir}")
     for idx, scenario_dir in enumerate(scenario_dirs, start=1):
-        print(f"[{method.upper()}] Scenario {idx}/{len(scenario_dirs)}: {scenario_dir.name}")
+        print(f"[{_method_display_name(method)}] Scenario {idx}/{len(scenario_dirs)}: {scenario_dir.name}")
         scenario_data = load_scenario_data(scenario_dir)
         result = solve_scenario_by_method(
             scenario_dir,
@@ -474,14 +521,15 @@ def solve_all_scenarios(
             cbs_time_step=cbs_time_step,
             cbs_horizon=cbs_horizon,
             optimizer_config_source=optimizer_config_source,
+            prune_mode=prune_mode,
         )
         print(
-            f"[{method.upper()}] Finished {scenario_dir.name} | "
+            f"[{_method_display_name(method)}] Finished {scenario_dir.name} | "
             f"cost={result.get('cost', 'N/A')} | runtime={result.get('runtime', 'N/A')}s"
         )
         solved_paths.append(scenario_dir)
 
-    print(f"[{method.upper()}] Completed all solves for {len(solved_paths)} scenarios")
+    print(f"[{_method_display_name(method)}] Completed all solves for {len(solved_paths)} scenarios")
     return solved_paths
 
 
@@ -497,7 +545,7 @@ def plot_scenario_solution(scenario_dir: Path, method: str, solution_data: Dict[
     for i in range(len(agent_routes)):
         agent_colors[i] = cmap(i / max(1, len(agent_routes)))
 
-    if method in {"cbf", "slsqp", "cbf_static", "slsqp_static"}:
+    if method in {"cbf", "mep_cbf_pruned", "slsqp", "cbf_static", "slsqp_static"}:
         T_schedule = solution_data["T_array"][-1]
     elif method == "gurobi":
         T_schedule = solution_data.get("T_mat", solution_data.get("T_array"))
@@ -516,7 +564,7 @@ def plot_scenario_solution(scenario_dir: Path, method: str, solution_data: Dict[
 
     network_path = scenario_dir / f"network_plot_{method}.png"
     visualize.plotNetwork(
-        figuresize=(20, 14),
+        figuresize=(14, 12),
         wp_xy=wp_locs,
         mask=mask,
         dist_mat=dist_mat,
@@ -554,7 +602,7 @@ def plot_scenario_solution(scenario_dir: Path, method: str, solution_data: Dict[
         process_T,
         tol_array,
         agent_colors,
-        figuresize=(24, 12),
+        figuresize=(28, 12),
         marker_size=18,
         index_size=52,
         x_tick_size=44,
@@ -565,9 +613,21 @@ def plot_scenario_solution(scenario_dir: Path, method: str, solution_data: Dict[
         show_plot=False,
     )
 
-    print(f"Saved plots to: {network_path}, {schedule_path}, and {agent_schedule_path}")
+    agent_route_schedule_path = scenario_dir / f"agent_route_schedule_plot_{method}.png"
+    visualize.plot_agent_route_schedule_table(
+        agent_routes,
+        T_schedule,
+        agent_colors=agent_colors,
+        save_path=str(agent_route_schedule_path),
+        show_plot=False,
+    )
 
-    if method == "cbf" and "b_arr" in solution_data and "chi_arr" in solution_data:
+    print(
+        f"Saved plots to: {network_path}, {schedule_path}, {agent_schedule_path}, "
+        f"and {agent_route_schedule_path}"
+    )
+
+    if method in {"cbf", "mep_cbf_pruned"} and "b_arr" in solution_data and "chi_arr" in solution_data:
         beta_assoc_path = scenario_dir / f"waypoint_association_vs_beta_{method}.png"
         visualize.plot_agent_waypoint_associations_vs_beta(
             b_arr=solution_data["b_arr"],
@@ -587,7 +647,7 @@ def plot_scenario_solution(scenario_dir: Path, method: str, solution_data: Dict[
         visualize.plot_path_probabilities_vs_beta(
             solution_data=solution_data,
             num_agents=len(solution_data["agent_routes"]),
-            num_paths=10,
+            num_paths=6,
             save_dir=str(path_prob_dir),
             show_plot=False,
         )
@@ -665,7 +725,7 @@ def animate_scenario_solution(
     agent_routes = solution_data["agent_routes"]
     fallback_schedules = solution_data["agent_schedules"]
 
-    if method in {"cbf", "slsqp", "cbf_static", "slsqp_static"}:
+    if method in {"cbf", "mep_cbf_pruned", "slsqp", "cbf_static", "slsqp_static"}:
         method_schedule = solution_data["T_array"][-1]
     elif method == "gurobi":
         method_schedule = solution_data.get("T_mat", solution_data.get("T_array"))
@@ -747,6 +807,114 @@ def _solution_arrival_times(solution: Dict[str, Any]) -> List[np.ndarray]:
     return arrival_times
 
 
+def _temporal_constraint_violation(
+    scenario_data: Dict[str, Any],
+    solution: Dict[str, Any],
+    routes: List[List[int]],
+    arrival_times: List[np.ndarray],
+) -> float:
+    """Return the largest agent-summed normalized edge travel-time violation."""
+    summary = scenario_data.get("mirs_summary", {})
+    dist_mat_data = solution.get("dist_mat")
+    if dist_mat_data is None:
+        dist_mat_data = summary.get("dist_mat")
+    speed_lim_data = solution.get("speed_lim_mat")
+    if speed_lim_data is None:
+        speed_lim_data = summary.get("speed_lim_mat")
+    if dist_mat_data is None:
+        raise KeyError("Scenario and solution data do not contain dist_mat")
+    if speed_lim_data is None:
+        raise KeyError("Scenario and solution data do not contain speed_lim_mat")
+
+    dist_mat = np.asarray(dist_mat_data, dtype=float)
+    speed_lim_mat = np.asarray(speed_lim_data, dtype=float)
+    if dist_mat.ndim != 2 or dist_mat.shape[0] != dist_mat.shape[1]:
+        raise ValueError("Distance matrix must be square")
+    if speed_lim_mat.shape != (len(routes), 2):
+        raise ValueError(
+            "Speed limits must contain [min_speed, max_speed] for each agent"
+        )
+    if len(arrival_times) != len(routes):
+        raise ValueError("Each agent route must have a corresponding schedule")
+
+    agent_violations = []
+    for agent_index, (route, times) in enumerate(zip(routes, arrival_times)):
+        if len(times) != len(route):
+            raise ValueError(
+                f"Agent {agent_index} has {len(route)} waypoints but "
+                f"{len(times)} arrival times"
+            )
+        min_speed, max_speed = speed_lim_mat[agent_index]
+        if (
+            not np.isfinite(min_speed)
+            or not np.isfinite(max_speed)
+            or min_speed <= 0
+            or max_speed < min_speed
+        ):
+            raise ValueError(f"Agent {agent_index} has invalid speed limits")
+
+        total_violation = 0.0
+        for edge_index, (source, destination) in enumerate(zip(route, route[1:])):
+            source = int(source)
+            destination = int(destination)
+            if source == destination:
+                continue
+            if (
+                source < 0
+                or destination < 0
+                or source >= dist_mat.shape[0]
+                or destination >= dist_mat.shape[1]
+            ):
+                raise ValueError(
+                    f"Agent {agent_index} route has an out-of-range edge "
+                    f"{source} -> {destination}"
+                )
+
+            distance = float(dist_mat[source, destination])
+            if not np.isfinite(distance) or distance <= 0:
+                raise ValueError(
+                    f"Agent {agent_index} route has an invalid edge "
+                    f"{source} -> {destination}"
+                )
+            transition_time = float(times[edge_index + 1] - times[edge_index])
+            if not np.isfinite(transition_time):
+                raise ValueError(
+                    f"Agent {agent_index} has a non-finite transition time "
+                    f"on edge {source} -> {destination}"
+                )
+
+            min_transition_time = distance / max_speed
+            max_transition_time = distance / min_speed
+            allowed_time_width = max_transition_time - min_transition_time
+            if allowed_time_width <= 0:
+                raise ValueError(
+                    f"Agent {agent_index} has no nonzero allowed time range "
+                    f"on edge {source} -> {destination}"
+                )
+
+            lower_violation = min(0.0, transition_time - min_transition_time)
+            upper_violation = max(0.0, transition_time - max_transition_time)
+            total_violation += (
+                float(np.hypot(lower_violation, upper_violation))
+                / allowed_time_width
+            )
+        agent_violations.append(total_violation)
+
+    return float(max(agent_violations, default=0.0))
+
+
+def _scenario_edge_count(scenario_data: Dict[str, Any]) -> int:
+    summary = scenario_data.get("mirs_summary", {})
+    mask = summary.get("mask", scenario_data.get("mask"))
+    if mask is None:
+        raise KeyError("Scenario data does not contain a graph mask")
+
+    adjacency = np.asarray(mask)
+    if adjacency.ndim != 2 or adjacency.shape[0] != adjacency.shape[1]:
+        raise ValueError("Scenario graph mask must be a square matrix")
+    return int(np.count_nonzero(np.triu(adjacency != 0, k=1)))
+
+
 def _solution_comparison_metrics(
     scenario_data: Dict[str, Any], solution: Dict[str, Any]
 ) -> Dict[str, float]:
@@ -779,38 +947,26 @@ def _solution_comparison_metrics(
     conflict_count = 0
     comparable_pair_count = 0
     conflict_deficits = []
-    for first_agent in range(len(routes)):
-        first_arrivals = {
-            int(node): [] for node in routes[first_agent]
-        }
-        for node, arrival_time in zip(routes[first_agent], arrival_times[first_agent]):
-            first_arrivals[int(node)].append(float(arrival_time))
+    arrivals_by_waypoint = defaultdict(list)
+    for route, agent_arrivals in zip(routes, arrival_times):
+        for node, arrival_time in zip(route, agent_arrivals):
+            if np.isfinite(arrival_time):
+                arrivals_by_waypoint[int(node)].append(float(arrival_time))
 
-        for second_agent in range(first_agent + 1, len(routes)):
-            second_arrivals = {
-                int(node): [] for node in routes[second_agent]
-            }
-            for node, arrival_time in zip(routes[second_agent], arrival_times[second_agent]):
-                second_arrivals[int(node)].append(float(arrival_time))
+    for node, arrivals in arrivals_by_waypoint.items():
+        if node >= tolerances.size or tolerances[node] <= 0:
+            continue
 
-            for node in first_arrivals.keys() & second_arrivals.keys():
-                if node >= tolerances.size:
-                    continue
-                threshold = 0.9 * tolerances[node]
-                gaps = [
-                    abs(first_time - second_time)
-                    for first_time in first_arrivals[node]
-                    for second_time in second_arrivals[node]
-                    if np.isfinite(first_time) and np.isfinite(second_time)
-                ]
-                tolerance = tolerances[node]
-                if tolerance <= 0:
-                    continue
-                comparable_pair_count += len(gaps)
-                for gap in gaps:
-                    if gap < threshold:
-                        conflict_count += 1
-                        conflict_deficits.append((threshold - gap) / threshold)
+        sorted_arrivals = sorted(arrivals)
+        threshold = 0.9 * tolerances[node]
+        for first_arrival, second_arrival in zip(
+            sorted_arrivals[:-1], sorted_arrivals[1:]
+        ):
+            gap = second_arrival - first_arrival
+            comparable_pair_count += 1
+            if gap < threshold:
+                conflict_count += 1
+                conflict_deficits.append((threshold - gap) / threshold)
 
     conflict_rate = (
         float(conflict_count / comparable_pair_count)
@@ -819,7 +975,9 @@ def _solution_comparison_metrics(
     )
     conflict_free = float(conflict_count == 0) if comparable_pair_count else np.nan
     mean_conflict_deficit = (
-        float(np.mean(conflict_deficits)) if conflict_deficits else 0.0
+        float(np.sum(conflict_deficits) / comparable_pair_count)
+        if comparable_pair_count
+        else 0.0
     )
     max_conflict_deficit = (
         float(np.max(conflict_deficits)) if conflict_deficits else 0.0
@@ -835,6 +993,9 @@ def _solution_comparison_metrics(
         "conflict_free": conflict_free,
         "mean_conflict_deficit": mean_conflict_deficit,
         "max_conflict_deficit": max_conflict_deficit,
+        "temporal_constraint_violation": _temporal_constraint_violation(
+            scenario_data, solution, routes, arrival_times
+        ),
     }
 
 
@@ -842,6 +1003,8 @@ def compare_methods_across_scenarios(
     root_dir: Path,
     methods: List[str] | None = None,
     save_path: Path | None = None,
+    plot_metrics: List[str] | None = None,
+    metric_figsize: tuple[float, float] = (16.0, 3.0),
 ) -> Path:
     if methods is None:
         methods = list(SUPPORTED_METHODS)
@@ -859,10 +1022,10 @@ def compare_methods_across_scenarios(
         for method in methods:
             solution_path = scenario_dir / output_filename_for_method(method)
             if not solution_path.exists():
-                break
+                continue
             with open(solution_path, "rb") as f:
                 method_solutions[method] = pickle.load(f)
-        else:
+        if method_solutions:
             scenario_records.append((scenario_dir, scenario_data, method_solutions))
 
     if not scenario_records:
@@ -880,20 +1043,28 @@ def compare_methods_across_scenarios(
         )
         grouped_records.setdefault(key, []).append(record)
     group_keys = sorted(grouped_records)
-    x_values = np.arange(len(group_keys), dtype=float)
-
-    method_labels = {
-        "cbf": "CBF",
-        "slsqp": "SLSQP",
-        "cbf_static": "CBF Static",
-        "slsqp_static": "SLSQP Static",
-        "gurobi": "Gurobi",
-        "cbs": "CBS",
-        "seq": "Sequential shortest path",
+    mean_problem_sizes = {
+        group_key: float(
+            np.mean(
+                [
+                    int(scenario_data["n_agents"])
+                    * _scenario_edge_count(scenario_data)
+                    * int(scenario_data["n_waypoints"])
+                    for _, scenario_data, _ in grouped_records[group_key]
+                ]
+            )
+        )
+        for group_key in group_keys
     }
+    group_keys.sort(key=mean_problem_sizes.__getitem__)
+    x_values = np.asarray(
+        [mean_problem_sizes[group_key] for group_key in group_keys], dtype=float
+    )
+    method_labels = METHOD_LABELS
     method_colors = {
-        "cbf": "tab:blue",
-        "slsqp": "tab:orange",
+        "cbf": "tab:orange",
+        "mep_cbf_pruned": "tab:olive",
+        "slsqp": "tab:blue",
         "cbf_static": "tab:cyan",
         "slsqp_static": "tab:brown",
         "gurobi": "tab:green",
@@ -902,6 +1073,7 @@ def compare_methods_across_scenarios(
     }
     method_markers = {
         "cbf": "o",
+        "mep_cbf_pruned": "h",
         "slsqp": "s",
         "cbf_static": "^",
         "slsqp_static": "D",
@@ -910,13 +1082,7 @@ def compare_methods_across_scenarios(
         "seq": "X",
     }
 
-    metric_names = (
-        "makespan",
-        "sum_time",
-        "runtime",
-        "conflict_rate",
-        "mean_conflict_deficit",
-    )
+    metric_names = COMPARISON_METRICS
     summary_metric_names = metric_names + (
         "conflicts",
         "comparable_pairs",
@@ -925,7 +1091,7 @@ def compare_methods_across_scenarios(
     )
     plotting_values = {
         method: {
-            metric: {"mean": [], "min": [], "max": [], "count": []}
+            metric: {"mean": [], "count": []}
             for metric in summary_metric_names
         }
         for method in methods
@@ -936,20 +1102,74 @@ def compare_methods_across_scenarios(
             metrics_by_name = [
                 _solution_comparison_metrics(data, solutions[method])
                 for _, data, solutions in records
+                if method in solutions
             ]
             for metric in summary_metric_names:
-                values = np.asarray([metrics[metric] for metrics in metrics_by_name], dtype=float)
+                baseline_method = (
+                    "cbf"
+                    if metric in {"runtime", "normalized_mean_cost_performance"}
+                    else "seq"
+                )
+                if metric in {
+                    "runtime",
+                    "pct_cost_reduction",
+                    "normalized_mean_cost_performance",
+                } and baseline_method in methods:
+                    ratio_values = []
+                    for _, data, solutions in records:
+                        if method not in solutions or baseline_method not in solutions:
+                            continue
+                        source_metric = (
+                            "sum_time"
+                            if metric
+                            in {"pct_cost_reduction", "normalized_mean_cost_performance"}
+                            else metric
+                        )
+                        method_value = _solution_comparison_metrics(
+                            data, solutions[method]
+                        )[source_metric]
+                        baseline_value = _solution_comparison_metrics(
+                            data, solutions[baseline_method]
+                        )[source_metric]
+                        if (
+                            np.isfinite(method_value)
+                            and np.isfinite(baseline_value)
+                            and baseline_value != 0
+                        ):
+                            if metric == "pct_cost_reduction":
+                                ratio_values.append(
+                                    100.0
+                                    * (baseline_value - method_value)
+                                    / baseline_value
+                                )
+                            elif metric == "normalized_mean_cost_performance":
+                                ratio_values.append(
+                                    100.0 * method_value / baseline_value
+                                )
+                            else:
+                                ratio_values.append(method_value / baseline_value)
+                    values = np.asarray(ratio_values, dtype=float)
+                    solved_count = int(values.size)
+                elif metric in {
+                    "runtime",
+                    "pct_cost_reduction",
+                    "normalized_mean_cost_performance",
+                }:
+                    values = np.asarray([], dtype=float)
+                    solved_count = 0
+                else:
+                    values = np.asarray([metrics[metric] for metrics in metrics_by_name], dtype=float)
+                    solved_count = sum(
+                        np.isfinite(metrics["runtime"])
+                        for metrics in metrics_by_name
+                    )
                 finite_values = values[np.isfinite(values)]
                 plotting_values[method][metric]["mean"].append(
-                    float(np.mean(finite_values)) if finite_values.size else np.nan
+                    float(np.mean(finite_values))
+                    if finite_values.size
+                    else np.nan
                 )
-                plotting_values[method][metric]["min"].append(
-                    float(np.min(finite_values)) if finite_values.size else np.nan
-                )
-                plotting_values[method][metric]["max"].append(
-                    float(np.max(finite_values)) if finite_values.size else np.nan
-                )
-                plotting_values[method][metric]["count"].append(int(finite_values.size))
+                plotting_values[method][metric]["count"].append(int(solved_count))
 
     output_dir = root_dir / "comparison_metric_plots"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -962,6 +1182,9 @@ def compare_methods_across_scenarios(
                 "n_waypoints": n_waypoints,
                 "n_agents": n_agents,
                 "n_scenarios": len(grouped_records[(network_type, n_waypoints, n_agents)]),
+                "mean_n_agents_edges_waypoints": mean_problem_sizes[
+                    (network_type, n_waypoints, n_agents)
+                ],
             }
             for network_type, n_waypoints, n_agents in group_keys
         ],
@@ -971,93 +1194,139 @@ def compare_methods_across_scenarios(
         json.dump(summary, summary_file, indent=2)
 
     metric_labels = {
-        "makespan": "Makespan (slowest agent time)",
-        "sum_time": "Sum of individual travel times",
-        "runtime": "Solution runtime (s)",
-        "conflict_rate": "Conflict rate (fraction of comparable pairs)",
-        "mean_conflict_deficit": "Mean normalized conflict deficit",
+        "makespan": "Makespan",
+        "pct_cost_reduction": "% Saved vs SEQ-SPS",
+        "normalized_mean_cost_performance": "Relative Cost (MEP-CBF=100)",
+        "runtime": "Relative Runtime (MEP-CBF=1)",
+        "conflict_rate": "Conflict rate",
+        "mean_conflict_deficit": "Conflict deficit",
+        "temporal_constraint_violation": "Temporal constraint violation",
     }
+    plot_metrics = metric_names if plot_metrics is None else plot_metrics
+    invalid_metrics = [metric for metric in plot_metrics if metric not in metric_names]
+    if invalid_metrics:
+        raise ValueError(
+            f"Unsupported comparison metrics: {invalid_metrics}. "
+            f"Supported metrics: {metric_names}"
+        )
+
     plt.rcParams["font.family"] = "Times New Roman"
-    x_tick_labels = [
-        f"({n_agents},{n_waypoints})"
-        for _, n_waypoints, n_agents in group_keys
-    ]
-    for metric in metric_names:
-        fig, axis = plt.subplots(figsize=(16, 6))
-        for method in methods:
-            means = np.asarray(plotting_values[method][metric]["mean"], dtype=float)
-            minimums = np.asarray(plotting_values[method][metric]["min"], dtype=float)
-            maximums = np.asarray(plotting_values[method][metric]["max"], dtype=float)
-            axis.plot(
-                x_values,
-                means,
-                marker=method_markers[method],
-                linewidth=3.0,
-                markersize=9,
-                label=method_labels[method],
-                color=method_colors[method],
-            )
-            axis.fill_between(
-                x_values,
-                minimums,
-                maximums,
-                color=method_colors[method],
-                alpha=0.15,
-            )
+    n_columns = min(4, len(methods))
+    legend_rows = int(np.ceil(len(methods) / n_columns))
+    legend_height = 0.6 * legend_rows + 0.5
+    plot_path = save_path or output_dir / "method_comparison_metrics.png"
 
-        axis.set_xticks(x_values)
-        axis.set_xticklabels(x_tick_labels, fontsize=22, fontname="Times New Roman")
-        axis.tick_params(axis="both", which="major", labelsize=20)
-        axis.tick_params(axis="both", which="minor", labelsize=20)
-        axis.set_xlabel(
-            "Scenario size (N, M) = (number of agents, number of waypoints)",
-            fontsize=20,
-            fontname="Times New Roman",
-        )
-        axis.set_ylabel(metric_labels[metric], fontsize=20, fontname="Times New Roman")
-        metric_values = np.concatenate(
-            [
-                np.asarray(plotting_values[method][metric][statistic], dtype=float)
-                for method in methods
-                for statistic in ("mean", "min", "max")
-            ]
-        )
-        finite_values = metric_values[np.isfinite(metric_values)]
-        use_log_scale = (
-            metric in {"runtime", "makespan", "sum_time"}
-            and finite_values.size > 0
-            and np.all(finite_values > 0)
-        )
-
-        if metric in {"conflict_rate", "mean_conflict_deficit"}:
-            axis.set_ylim(-0.1, 1)
-        if metric in {"makespan", "runtime", "sum_time"}:
-            formatter = ScalarFormatter(useMathText=True)
-            formatter.set_scientific(True)
-            formatter.set_powerlimits((0, 0))
-            axis.yaxis.set_major_formatter(formatter)
-            axis.yaxis.get_offset_text().set_fontsize(20)
-            axis.yaxis.get_offset_text().set_fontname("Times New Roman")
+    def save_metric_figure(horizontal: bool, figure_path: Path) -> None:
+        if horizontal:
+            nrows, ncols = 1, len(plot_metrics)
+            figure_width = metric_figsize[0] * len(plot_metrics)
+            plot_height = metric_figsize[1]
         else:
-            axis.ticklabel_format(axis="y", style="plain", useOffset=False)
-        axis.grid(True, linestyle="--", alpha=0.4)
-        axis.legend(
-            title=f"{metric_labels[metric]} (y-axis)",
-            fontsize=18,
-            title_fontsize=18,
+            nrows, ncols = len(plot_metrics), 1
+            figure_width = metric_figsize[0]
+            plot_height = metric_figsize[1] * len(plot_metrics)
+
+        figure_height = plot_height + legend_height
+        fig, axes_grid = plt.subplots(
+            nrows=nrows,
+            ncols=ncols,
+            figsize=(figure_width, figure_height),
+            sharex=not horizontal,
+            squeeze=False,
         )
-        fig.tight_layout()
-        metric_path = output_dir / f"{metric}.png"
-        fig.savefig(metric_path, dpi=400, bbox_inches="tight")
+        axes = axes_grid.ravel()
+        for metric, axis in zip(plot_metrics, axes):
+            axis.set_xscale("log")
+            for method in methods:
+                means = np.asarray(plotting_values[method][metric]["mean"], dtype=float)
+                axis.plot(
+                    x_values,
+                    means,
+                    marker=method_markers[method],
+                    linestyle={"slsqp": "--", "seq": "--"}.get(method, "-"),
+                    linewidth=4.0,
+                    markersize=18,
+                    label=method_labels[method],
+                    color=method_colors[method],
+                )
+
+            axis.tick_params(axis="both", which="major", labelsize=40)
+            axis.tick_params(axis="both", which="minor", labelsize=40)
+            axis.text(
+                0.01,
+                0.98,
+                f"Mean {metric_labels[metric]}",
+                transform=axis.transAxes,
+                ha="left",
+                va="top",
+                fontsize=36,
+                fontname="Times New Roman",
+                bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "none", "pad": 2},
+            )
+            metric_values = np.concatenate(
+                [
+                    np.asarray(plotting_values[method][metric][statistic], dtype=float)
+                    for method in methods
+                    for statistic in ("mean",)
+                ]
+            )
+            finite_values = metric_values[np.isfinite(metric_values)]
+
+            if metric in {"conflict_rate", "mean_conflict_deficit"}:
+                axis.set_ylim(-0.1, 1)
+            if metric == "makespan":
+                formatter = ScalarFormatter(useMathText=True)
+                formatter.set_scientific(True)
+                formatter.set_powerlimits((0, 0))
+                axis.yaxis.set_major_formatter(formatter)
+                axis.yaxis.get_offset_text().set_fontsize(40)
+                axis.yaxis.get_offset_text().set_fontname("Times New Roman")
+            else:
+                axis.ticklabel_format(axis="y", style="plain", useOffset=False)
+            axis.grid(True, linestyle="--", alpha=0.4)
+
+            axis.xaxis.set_major_locator(LogLocator(base=10.0))
+            axis.xaxis.set_major_formatter(LogFormatterMathtext(base=10.0))
+
+        if horizontal:
+            fig.supxlabel("Problem Size", fontsize=40, fontname="Times New Roman")
+            layout_rect = (0, 0.1, 1, 1 - legend_height / figure_height)
+        else:
+            axes[-1].set_xlabel(
+                "Problem Size",
+                fontsize=40,
+                fontname="Times New Roman",
+            )
+            layout_rect = (0, 0, 1, 1 - legend_height / figure_height)
+
+        handles, labels = axes[0].get_legend_handles_labels()
+        fig.legend(
+            handles,
+            labels,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.99),
+            ncol=n_columns,
+            fontsize=40,
+            frameon=False,
+        )
+        fig.tight_layout(rect=layout_rect)
+        figure_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(figure_path, dpi=400, bbox_inches="tight")
         plt.close(fig)
 
-    return output_dir
+    save_metric_figure(horizontal=False, figure_path=plot_path)
+    horizontal_plot_path = plot_path.with_name(
+        f"{plot_path.stem}_horizontal{plot_path.suffix}"
+    )
+    save_metric_figure(horizontal=True, figure_path=horizontal_plot_path)
+
+    return plot_path
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Solve or plot MIRS scenarios using the CBF, SLSQP, or Gurobi optimizer workflow from main.ipynb."
+            "Solve or plot MIRS scenarios using MEP-CBF, MEP-SLSQP, or Gurobi."
         )
     )
     parser.add_argument(
@@ -1081,7 +1350,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--anneal-print",
         action="store_true",
-        help="Enable detailed annealing printout for the CBF/SLSQP optimizer during solve mode.",
+        help="Enable detailed annealing printout for the MEP-CBF/MEP-SLSQP optimizer during solve mode.",
     )
     parser.add_argument(
         "--methods",
@@ -1089,6 +1358,22 @@ def parse_args() -> argparse.Namespace:
         default=None,
         metavar="METHOD",
         help="Methods to run, plot, or compare. Use 'all' to select every supported method.",
+    )
+    parser.add_argument(
+        "--metrics",
+        nargs="+",
+        choices=COMPARISON_METRICS,
+        default=None,
+        metavar="METRIC",
+        help="Metrics to include as subplot rows in compare mode. Defaults to all metrics.",
+    )
+    parser.add_argument(
+        "--metric-figsize",
+        nargs=2,
+        type=float,
+        default=(16.0, 3.0),
+        metavar=("WIDTH", "HEIGHT"),
+        help="Width and height in inches for each metric subplot. Default: 16 3.",
     )
     parser.add_argument(
         "--time-limit",
@@ -1125,9 +1410,19 @@ def parse_args() -> argparse.Namespace:
         choices=("scenario", "utils"),
         default="scenario",
         help=(
-            "Source for CBF/SLSQP optimizer specs: 'scenario' uses the saved "
+            "Source for MEP-CBF/MEP-SLSQP optimizer specs: 'scenario' uses the saved "
             "scenario_data.pkl values; 'utils' rebuilds them from "
             "utils.set_mep_opt_config(). Default: scenario."
+        ),
+    )
+    parser.add_argument(
+        "--prune-mode",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Override saved prune_mode for methods without a fixed policy "
+            "(--prune-mode / --no-prune-mode). MEP-CBF is always unpruned; "
+            "mep_cbf_pruned is always pruned."
         ),
     )
     args = parser.parse_args()
@@ -1161,7 +1456,7 @@ def main() -> None:
         if args.scenario_path is not None:
             scenario_dir = Path(args.scenario_path)
             for solve_method in solve_methods:
-                print(f"[{solve_method.upper()}] Solving single scenario: {scenario_dir}")
+                print(f"[{_method_display_name(solve_method)}] Solving single scenario: {scenario_dir}")
                 scenario_data = load_scenario_data(scenario_dir)
                 solved = solve_scenario_by_method(
                     scenario_dir,
@@ -1172,17 +1467,18 @@ def main() -> None:
                     cbs_time_step=args.cbs_time_step,
                     cbs_horizon=args.cbs_horizon,
                     optimizer_config_source=args.optimizer_config_source,
+                    prune_mode=args.prune_mode,
                 )
-                print(f"[{solve_method.upper()}] Solved scenario: {scenario_dir}")
-                print(f"[{solve_method.upper()}] Final cost: {solved['cost']}")
+                print(f"[{_method_display_name(solve_method)}] Solved scenario: {scenario_dir}")
+                print(f"[{_method_display_name(solve_method)}] Final cost: {solved['cost']}")
                 print(
-                    f"[{solve_method.upper()}] Saved solution to: "
+                    f"[{_method_display_name(solve_method)}] Saved solution to: "
                     f"{scenario_dir / output_filename_for_method(solve_method)}"
                 )
             return
 
         for solve_method in solve_methods:
-            print(f"[{solve_method.upper()}] Solve mode with time limit {args.time_limit}s")
+            print(f"[{_method_display_name(solve_method)}] Solve mode with time limit {args.time_limit}s")
             solved_dirs = solve_all_scenarios(
                 args.scenario_root,
                 solve_method,
@@ -1191,9 +1487,10 @@ def main() -> None:
                 cbs_time_step=args.cbs_time_step,
                 cbs_horizon=args.cbs_horizon,
                 optimizer_config_source=args.optimizer_config_source,
+                prune_mode=args.prune_mode,
             )
             print(
-                f"[{solve_method.upper()}] Solved {len(solved_dirs)} scenarios "
+                f"[{_method_display_name(solve_method)}] Solved {len(solved_dirs)} scenarios "
                 f"under {args.scenario_root}"
             )
             for d in solved_dirs:
@@ -1205,9 +1502,12 @@ def main() -> None:
         comparison_path = compare_methods_across_scenarios(
             args.scenario_root,
             methods=methods,
-            save_path=args.scenario_root / "method_comparison_metrics.png",
+            save_path=args.scenario_root / "comparison_metric_plots" / "method_comparison_metrics.png",
+            plot_metrics=args.metrics,
+            metric_figsize=tuple(args.metric_figsize),
         )
-        print(f"Saved cross-method comparison plot for {methods}: {comparison_path}")
+        method_names = [_method_display_name(selected_method) for selected_method in methods]
+        print(f"Saved cross-method comparison plot for {method_names}: {comparison_path}")
         return
 
     if args.mode == "anim":
@@ -1229,7 +1529,7 @@ def main() -> None:
                     fps=args.animation_fps,
                     max_frames=args.animation_max_frames,
                 )
-                print(f"Animated scenario with {animation_method}: {animation_path}")
+                print(f"Animated scenario with {_method_display_name(animation_method)}: {animation_path}")
             return
 
         for animation_method in animation_methods:
@@ -1241,7 +1541,7 @@ def main() -> None:
             )
             print(
                 f"Animated {len(animation_paths)} scenarios under "
-                f"{args.scenario_root} with {animation_method}"
+                f"{args.scenario_root} with {_method_display_name(animation_method)}"
             )
         return
 
@@ -1258,12 +1558,12 @@ def main() -> None:
                 solution_data = pickle.load(f)
 
             plot_scenario_solution(scenario_dir, plot_method, solution_data)
-            print(f"Plotted scenario with {plot_method}: {scenario_dir}")
+            print(f"Plotted scenario with {_method_display_name(plot_method)}: {scenario_dir}")
         return
 
     for plot_method in plot_methods:
         plotted_dirs = plot_all_scenarios(args.scenario_root, plot_method)
-        print(f"Plotted {len(plotted_dirs)} scenarios under {args.scenario_root} with {plot_method}")
+        print(f"Plotted {len(plotted_dirs)} scenarios under {args.scenario_root} with {_method_display_name(plot_method)}")
     for d in plotted_dirs:
         print(f"- {d.name}: network_plot_{method}.png and schedule_plot_{method}.png")
 

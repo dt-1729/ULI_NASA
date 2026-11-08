@@ -5,12 +5,12 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
-#SBATCH --time=03:15:00
+#SBATCH --time=30:15:00
 #SBATCH --job-name=solve-scenarios
 #SBATCH --output=slurm_logs/slurm-solve-%x-%a-%j.out
 #SBATCH --error=slurm_logs/slurm-solve-%x-%a-%j.err
 #SBATCH --nodelist=ccc0361
-#SBATCH --array=0-99%20
+#SBATCH --array=0-149%20
 
 # For final timing benchmarks, uncomment this. It prevents interference
 # from other jobs sharing the same node, but may increase queue time.
@@ -27,17 +27,8 @@ cd "$SLURM_SUBMIT_DIR"
 SCENARIO_ROOT="${SCENARIO_ROOT:-$SLURM_SUBMIT_DIR/scenarios_new}"
 PYTHON_BIN="/projects/illinois/eng/mechse/salapaka/dhananjay/.venv/bin/python"
 # PYTHON_BIN="${PYTHON_BIN:-$SLURM_SUBMIT_DIR/.venv/bin/python}"
-METHODS=("cbf" "slsqp" "seq")
+METHODS=("cbf" "mep_cbf_pruned" "slsqp" "seq")
 TIME_LIMIT="${TIME_LIMIT:-3600}"
-
-# Only these scenario subdirectories are solved by this job.
-SCENARIO_DIRS=(
-    "local_scenarios_25_18"
-    "local_scenarios_30_18"
-    "local_scenarios_35_21"
-    "local_scenarios_40_25"
-    "local_scenarios_40_29"
-)
 
 # Prevent numerical libraries from using cores beyond --cpus-per-task.
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
@@ -45,17 +36,13 @@ export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 export NUMEXPR_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 
-SEARCH_ROOTS=()
-for D in "${SCENARIO_DIRS[@]}"; do
-    if [[ -d "$SCENARIO_ROOT/$D" ]]; then
-        SEARCH_ROOTS+=("$SCENARIO_ROOT/$D")
-    else
-        echo "WARNING: $SCENARIO_ROOT/$D not found, skipping"
-    fi
-done
+if [[ ! -d "$SCENARIO_ROOT" ]]; then
+    echo "ERROR: Scenario root does not exist: $SCENARIO_ROOT"
+    exit 1
+fi
 
 mapfile -t SCENARIOS < <(
-    find "${SEARCH_ROOTS[@]}" -type f -name scenario_data.pkl -print \
+    find "$SCENARIO_ROOT" -type f -name scenario_data.pkl -print \
         | sed 's#/scenario_data.pkl$##' \
         | sort
 )
@@ -85,8 +72,7 @@ if [[ ! -f "$SCENARIO_PATH/scenario_data.pkl" ]]; then
     exit 1
 fi
 
-# Rotate order: cbf→slsqp→seq, then slsqp→seq→cbf, then seq→cbf→slsqp.
-# This keeps all methods in the same job, while avoiding systematic order bias.
+# Rotate method order across scenarios to avoid systematic order bias.
 OFFSET=$((SLURM_ARRAY_TASK_ID % ${#METHODS[@]}))
 METHOD_ORDER=()
 for ((i = 0; i < ${#METHODS[@]}; i++)); do
