@@ -9,7 +9,7 @@
 #SBATCH --job-name=solve-scenarios
 #SBATCH --output=slurm_logs/slurm-solve-%x-%a-%j.out
 #SBATCH --error=slurm_logs/slurm-solve-%x-%a-%j.err
-#SBATCH --nodelist=ccc0361
+# #SBATCH --nodelist=ccc0291
 #SBATCH --array=0-149%20
 
 # For final timing benchmarks, uncomment this. It prevents interference
