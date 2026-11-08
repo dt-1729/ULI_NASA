@@ -1,0 +1,4 @@
+/projects/illinois/eng/mechse/salapaka/dhananjay/.venv/lib64/python3.9/site-packages/networkx/utils/backends.py:135: RuntimeWarning: networkx backend defined more than once: nx-loopback
+  backends.update(_get_backends("networkx.backends"))
+/projects/illinois/eng/mechse/salapaka/dhananjay/.venv/lib64/python3.9/site-packages/cvxpy/problems/problem.py:1539: UserWarning: Solution may be inaccurate. Try another solver, adjusting the solver settings, or solve with verbose=True for more information.
+  warnings.warn(
