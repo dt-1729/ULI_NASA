@@ -1,0 +1,73 @@
+SCENARIO_ARGS: --scenario_folder scenarios/random_nwp150_na10_p5_seed1
+=== Higher level ===
+Coarse waypoints: 50
+Final beta: 1
+Final cost: 25.8797
+Runtime: 987.05 s
+Saved solution: scenarios/random_nwp150_na10_p5_seed1/coarse/solution_coarse_cbf.pkl
+Saved plots: scenarios/random_nwp150_na10_p5_seed1/coarse/network_plot_coarse_cbf.png, scenarios/random_nwp150_na10_p5_seed1/coarse/schedule_plot_coarse_cbf.png, scenarios/random_nwp150_na10_p5_seed1/coarse/agent_schedule_plot_coarse_cbf.png
+Agent 0: route=[43, 4, 24, 141, 47], schedule=[  0.      4.01   85.992  97.146 138.673 151.87  192.706]
+Agent 1: route=[102, 147, 123], schedule=[  0.      0.605  70.857  85.293 162.89 ]
+Agent 2: route=[38, 141, 101], schedule=[ 0.    20.449 42.86  53.259 97.47 ]
+Agent 3: route=[147, 102, 101], schedule=[  0.      1.662  39.552  55.78  123.329]
+Agent 4: route=[135, 31, 96, 65, 63], schedule=[  0.      1.593  36.315  56.908 122.04  135.363 151.975]
+Agent 5: route=[107, 98, 95], schedule=[  0.      1.318  95.09  104.966 116.587]
+Agent 6: route=[137, 122, 66, 15, 33], schedule=[  0.      5.457  40.258  50.914 111.083 120.604 138.602]
+Agent 7: route=[43, 80, 24, 141, 48], schedule=[  0.      6.932  63.548  74.193 117.71  129.569 166.16 ]
+Agent 8: route=[135, 31, 133], schedule=[  0.      5.253  92.906 118.603 136.303]
+Agent 9: route=[65, 96, 121, 23], schedule=[  0.      7.329  56.812  70.803 153.363 174.725]
+=== Lower level ===
+Subgraph 0: agents=[5, 2, 6, 7, 0], final cost=115.502, runtime=79.1 s
+  Agent 5: route=[84, 143, 0, 40, 107], schedule=[ 1.318  1.468 27.21  51.85  75.093 94.378]
+  Agent 2: route=[148, 38], schedule=[20.449 21.709 40.658]
+  Agent 6: route=[122, 118, 89, 24, 148, 66], schedule=[ 50.914  50.914  66.769  82.568  92.795  99.39  111.083]
+  Agent 7: route=[80, 40, 140, 24], schedule=[ 74.193  74.193  89.782 105.349 117.71 ]
+  Agent 0: route=[4, 40, 140, 24], schedule=[ 97.146  97.146 106.652 124.76  138.673]
+Subgraph 1: agents=[1, 2, 3, 6, 7, 0], final cost=87.3851, runtime=59.3 s
+  Agent 1: route=[81, 101, 59, 87, 102], schedule=[ 0.605  0.605 17.024 35.503 56.299 70.857]
+  Agent 2: route=[141, 15, 101], schedule=[53.259 53.259 76.713 97.47 ]
+  Agent 3: route=[102, 141, 15, 101], schedule=[ 55.78   59.41   77.248  99.608 119.444]
+  Agent 6: route=[15, 33], schedule=[120.604 120.604 138.602]
+  Agent 7: route=[141, 15, 48], schedule=[129.569 129.787 150.239 165.549]
+  Agent 0: route=[141, 119, 47], schedule=[151.87  152.468 172.258 191.859]
+Subgraph 2: agents=[4, 3, 8, 1, 5], final cost=12.481, runtime=426.5 s
+  Agent 4: route=[125, 56, 135], schedule=[ 1.593  1.593 10.696 36.315]
+  Agent 3: route=[127, 120, 147], schedule=[ 1.662  1.664 10.874 30.567]
+  Agent 8: route=[19, 134, 49, 23, 135], schedule=[ 5.253  7.997 30.904 50.278 72.53  82.459]
+  Agent 1: route=[147, 25, 145, 57, 29, 123], schedule=[ 85.293  85.293  94.959 115.224 126.838 147.86  162.89 ]
+  Agent 5: route=[98, 95], schedule=[104.966 104.966 116.587]
+Subgraph 3: agents=[6, 4, 9, 8], final cost=44.2197, runtime=73.8 s
+  Agent 6: route=[133, 103, 94, 137], schedule=[ 5.457  5.457 13.293 29.419 40.258]
+  Agent 4: route=[31, 128, 21, 3, 96], schedule=[ 56.908  56.908  80.304  95.995 109.167 122.04 ]
+  Agent 9: route=[96, 93, 137, 41, 121], schedule=[ 70.803  73.854  98.497 108.952 128.356 146.213]
+  Agent 8: route=[31, 133], schedule=[118.603 118.648 132.109]
+Subgraph 4: agents=[0, 7, 9, 4], final cost=64.3596, runtime=48.9 s
+  Agent 0: route=[44, 149, 30, 61, 90, 43], schedule=[ 4.01   4.01  14.396 32.351 52.692 74.996 85.992]
+  Agent 7: route=[16, 111, 77, 90, 43], schedule=[ 6.932  6.932 25.404 38.77  53.837 63.548]
+  Agent 9: route=[42, 82, 65], schedule=[ 7.329 10.339 33.47  47.57 ]
+  Agent 4: route=[65, 63], schedule=[135.363 135.404 151.174]
+Saved subgraph 0 solution and plots in scenarios/random_nwp150_na10_p5_seed1/subgraphs/subgraph_0
+Saved subgraph 1 solution and plots in scenarios/random_nwp150_na10_p5_seed1/subgraphs/subgraph_1
+Saved subgraph 2 solution and plots in scenarios/random_nwp150_na10_p5_seed1/subgraphs/subgraph_2
+Saved subgraph 3 solution and plots in scenarios/random_nwp150_na10_p5_seed1/subgraphs/subgraph_3
+Saved subgraph 4 solution and plots in scenarios/random_nwp150_na10_p5_seed1/subgraphs/subgraph_4
+Combined solution: max exit/entry overlap=0
+  Agent 0: route=[149, 30, 61, 90, 43, 4, 40, 140, 24, 141, 119, 47], schedule=[  4.01    4.01   14.396  32.351  52.692  74.996  85.992  97.146 106.652
+ 124.76  138.673 152.468 172.258 191.859]
+  Agent 1: route=[101, 59, 87, 102, 147, 25, 145, 57, 29, 123], schedule=[  0.605   0.605  17.024  35.503  56.299  70.857  85.293  94.959 115.224
+ 126.838 147.86  162.89 ]
+  Agent 2: route=[38, 141, 15, 101], schedule=[21.709 21.709 40.658 53.259 76.713 97.47 ]
+  Agent 3: route=[120, 147, 102, 141, 15, 101], schedule=[  1.664   1.664  10.874  30.567  59.41   77.248  99.608 119.444]
+  Agent 4: route=[56, 135, 31, 128, 21, 3, 96, 65, 63], schedule=[  1.593   1.593  10.696  36.315  56.908  80.304  95.995 109.167 122.04
+ 135.404 151.174]
+  Agent 5: route=[143, 0, 40, 107, 98, 95], schedule=[  1.468   1.468  27.21   51.85   75.093  94.378 104.966 116.587]
+  Agent 6: route=[103, 94, 137, 122, 118, 89, 24, 148, 66, 15, 33], schedule=[  5.457   5.457  13.293  29.419  40.258  50.914  66.769  82.568  92.795
+  99.39  111.083 120.604 138.602]
+  Agent 7: route=[111, 77, 90, 43, 80, 40, 140, 24, 141, 15, 48], schedule=[  6.932   6.932  25.404  38.77   53.837  63.548  74.193  89.782 105.349
+ 117.71  129.787 150.239 165.549]
+  Agent 8: route=[134, 49, 23, 135, 31, 133], schedule=[  7.997   7.997  30.904  50.278  72.53   82.459 118.648 132.109]
+  Agent 9: route=[82, 65, 96, 93, 137, 41, 121, 23], schedule=[ 10.339  10.339  33.47   47.57   73.854  98.497 108.952 128.356 146.213
+ 174.725]
+Saved combined plots: scenarios/random_nwp150_na10_p5_seed1/combined/network_plot_full.png, scenarios/random_nwp150_na10_p5_seed1/combined/schedule_plot_full.png, scenarios/random_nwp150_na10_p5_seed1/combined/agent_schedule_plot_full.png
+Saved combined solution: scenarios/random_nwp150_na10_p5_seed1/combined/solution_combined.pkl
+Pipeline finished in 1697.4 s (outputs in scenarios/random_nwp150_na10_p5_seed1)
