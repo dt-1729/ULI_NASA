@@ -151,7 +151,7 @@ class MIRS():
         elif self.cost_mode == 'slowest':
             C_max = np.max(C_arr)
             transport_cost = 1/self.lm * np.log(np.sum(np.exp(self.lm*(C_arr-C_max)))) + C_max
-        
+
         return transport_cost, Grad_F
 
 
@@ -291,8 +291,9 @@ class MIRS():
                         Grad_Hi = np.zeros((n_active_agents * (n_active_agents-1)//2, Na))
                         temp_grad = np.zeros((n_active_agents * (n_active_agents-1)//2, n_active_agents))
                         for j in range(n_active_agents-1):
-                            temp_grad[start_row : start_row + n_rows, j] = 2 * KTi[j, j+1:]
-                            temp_grad[start_row : start_row + n_rows, j+1:] = np.diag(-2 * KTi[j, j+1:])
+                            # KTi[r, c] = T_c - T_r, so d/dT_j (T_j - T_k)^2 = -2*KTi[j, k]
+                            temp_grad[start_row : start_row + n_rows, j] = -2 * KTi[j, j+1:]
+                            temp_grad[start_row : start_row + n_rows, j+1:] = np.diag(2 * KTi[j, j+1:])
                             start_row = start_row + n_rows
                             n_rows = n_rows-1
                         Grad_Hi[:, filter_wp[:,wp]==1.0] = temp_grad

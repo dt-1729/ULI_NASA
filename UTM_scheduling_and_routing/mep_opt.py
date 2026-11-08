@@ -349,6 +349,13 @@ class MIRSOptimizer:
                 if annealPrint:
                     w, h = mirs.ca_cbf['width'][0], mirs.ca_cbf['height'][0]
                     print(f'w:{w:.3f}\th:{h:.3f}')
+            # elif mirs.ca_cbf['mode'] == 'none':
+            #     mirs.ca_cbf['width'] = np.ones(mirs.tolArray.shape)*mirs.T_upper_bound
+            #     mirs.ca_cbf['height'] = mirs.tolArray
+            #     if annealPrint:
+            #         w, h = mirs.ca_cbf['width'][0], mirs.ca_cbf['height'][0]
+            #         print(f'w:{w:.3f}\th:{h:.3f}')
+
 
             if self.optim_config['name'] == 'cbf_clf':
                 Tb, Vb, Ub, Fb, Fdot_b, tolb, delta_b = self.CBF_CLF_at_beta(

@@ -214,7 +214,7 @@ def run_scenario(
 	runtime = time.perf_counter() - start_time
 
 	solution_data = {
-		"name": "SEQUENTIAL_SHORTEST_PATH",
+		"name": "SEQ-SPS",
 		"method": "sequential_shortest_path",
 		"scenario_id": scenario_data.get("scenario_id"),
 		"n_agents": int(scenario_data["n_agents"]),
@@ -239,7 +239,7 @@ def run_scenario(
 
 def main() -> None:
 	parser = argparse.ArgumentParser(
-		description="Run the sequential shortest-path routing and scheduling baseline."
+		description="Run the SEQ-SPS routing and scheduling baseline."
 	)
 	parser.add_argument(
 		"--scenario-path",
