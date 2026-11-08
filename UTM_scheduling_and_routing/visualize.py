@@ -77,7 +77,7 @@ def report_comparison_tables(
     if output_format not in {"markdown", "latex"}:
         raise ValueError("output_format must be 'markdown' or 'latex'.")
 
-    from main import _solution_comparison_metrics
+    from comparison import _solution_comparison_metrics
 
     scenario_root = Path(scenario_root)
     scenario_dirs = sorted(
