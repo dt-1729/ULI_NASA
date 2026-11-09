@@ -1,5 +1,6 @@
 # Slurm job output logs
 slurm_logs/
+slurm_logs_mep_pruned/
 
 # Python cache
 __pycache__/

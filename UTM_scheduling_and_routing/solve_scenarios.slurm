@@ -7,8 +7,8 @@
 #SBATCH --mem=16G
 #SBATCH --time=30:15:00
 #SBATCH --job-name=solve-scenarios
-#SBATCH --output=slurm_logs/slurm-solve-%x-%a-%j.out
-#SBATCH --error=slurm_logs/slurm-solve-%x-%a-%j.err
+#SBATCH --output=slurm_logs_mep_pruned/slurm-solve-%x-%a-%j.out
+#SBATCH --error=slurm_logs_mep_pruned/slurm-solve-%x-%a-%j.err
 # #SBATCH --nodelist=ccc0291
 #SBATCH --array=0-149%20
 
@@ -27,7 +27,7 @@ cd "$SLURM_SUBMIT_DIR"
 SCENARIO_ROOT="${SCENARIO_ROOT:-$SLURM_SUBMIT_DIR/scenarios_new}"
 PYTHON_BIN="/projects/illinois/eng/mechse/salapaka/dhananjay/.venv/bin/python"
 # PYTHON_BIN="${PYTHON_BIN:-$SLURM_SUBMIT_DIR/.venv/bin/python}"
-METHODS=("cbf" "mep_cbf_pruned" "slsqp" "seq")
+METHODS=("mep_cbf_pruned")
 TIME_LIMIT="${TIME_LIMIT:-3600}"
 
 # Prevent numerical libraries from using cores beyond --cpus-per-task.
